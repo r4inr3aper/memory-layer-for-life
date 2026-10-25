@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Second Brain Golden Evaluation Case",
+  "type": "object",
+  "required": [
+    "case_id",
+    "source_event_ids",
+    "input",
+    "expected",
+    "must_not",
+    "tags",
+    "review_status"
+  ],
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "source_event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "input": {
+      "type": "object",
+      "required": [
+        "messages"
+      ],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "event_id",
+              "source_line",
+              "timestamp_local",
+              "text"
+            ],
+            "properties": {
+              "event_id": {
+                "type": "string"
+              },
+              "source_line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "timestamp_local": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "expected": {
+      "type": "object",
+      "required": [
+        "outcome",
+        "memories",
+        "rationale"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "extract",
+            "context",
+            "abstain"
+          ]
+        },
+        "memories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "summary",
+              "status"
+            ],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "number"
+              },
+              "amounts": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "currency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "category": {
+                "type": "string"
+              },
+              "counterparty": {
+                "type": "string"
+              },
+              "participants": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "items": {
+                "type": "array"
+              },
+              "computed_total": {
+                "type": "number"
+              },
+              "calculation": {
+                "type": "string"
+              },
+              "due_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "date_note": {
+                "type": "string"
+              },
+              "temporal_note": {
+                "type": "string"
+              },
+              "ambiguity": {
+                "type": "string"
+              },
+              "project_hint": {
+                "type": "string"
+              },
+              "related_items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "safety_note": {
+                "type": "string"
+              },
+              "sensitivity": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "must_not": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "review_status": {
+      "enum": [
+        "draft_needs_human_review",
+        "approved",
+        "rejected"
+      ]
+    },
+    "source_fingerprint_sha256": {
+      "type": "string"
+    },
+    "annotation_version": {
+      "type": "string"
+    },
+    "dataset_split": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
+
+
+
+

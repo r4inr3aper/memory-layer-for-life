@@ -1,0 +1,359 @@
+{
+  "schema_version": "1.0",
+  "schema": {
+    "$defs": {
+      "EntityType": {
+        "type": "string",
+        "enum": [
+          "person",
+          "organization",
+          "project",
+          "concept",
+          "place",
+          "event",
+          "technology",
+          "topic"
+        ],
+        "title": "EntityType"
+      },
+      "EvidenceReference": {
+        "type": "object",
+        "title": "EvidenceReference",
+        "properties": {
+          "message_index": {
+            "type": "integer",
+            "description": "Zero-based index of the message that supports the memory.\n\n{minimum: 0}",
+            "title": "Message Index"
+          },
+          "quote": {
+            "type": "string",
+            "description": "Words copied exactly from that message. Never paraphrase a quote.\n\n{minLength: 1}",
+            "title": "Quote"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "message_index",
+          "quote"
+        ]
+      },
+      "ExtractedEntityMention": {
+        "type": "object",
+        "title": "ExtractedEntityMention",
+        "properties": {
+          "entity_type": {
+            "$ref": "#/$defs/EntityType"
+          },
+          "mention_text": {
+            "type": "string",
+            "description": "The name exactly as written in the message. Do not expand or correct it.\n\n{maxLength: 1000, minLength: 1}",
+            "title": "Mention Text"
+          },
+          "message_index": {
+            "type": "integer",
+            "description": "Zero-based index of the message that contains the mention.\n\n{minimum: 0}",
+            "title": "Message Index"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "description": "{maximum: 1, minimum: 0}"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "entity_type",
+          "mention_text",
+          "message_index",
+          "confidence"
+        ]
+      },
+      "ExtractedMemory": {
+        "type": "object",
+        "title": "ExtractedMemory",
+        "properties": {
+          "memory_type": {
+            "$ref": "#/$defs/MemoryType"
+          },
+          "content": {
+            "type": "string",
+            "description": "One clear, self-contained statement of the memory, grounded in the source.\n\n{minLength: 1}",
+            "title": "Content"
+          },
+          "state": {
+            "$ref": "#/$defs/MemoryState"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "How sure you are that this reading is correct, from 0 to 1.\n\n{maximum: 1, minimum: 0}",
+            "title": "Confidence"
+          },
+          "sensitivity": {
+            "$ref": "#/$defs/Sensitivity"
+          },
+          "evidence": {
+            "type": "array",
+            "description": "The messages this memory rests on. At least one.",
+            "title": "Evidence",
+            "items": {
+              "$ref": "#/$defs/EvidenceReference"
+            },
+            "minItems": 1
+          },
+          "ambiguity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What is unclear or could be read differently, or null if nothing is.",
+            "title": "Ambiguity"
+          },
+          "temporal": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TemporalInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when the source contains a time expression for this memory."
+          },
+          "financial": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FinancialInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when the memory involves an amount of money."
+          },
+          "entity_mention_indexes": {
+            "type": "array",
+            "description": "Zero-based positions in this output's entity_mentions list of the entities this memory involves. Every value must be a valid position in that list. Use an empty list when the memory involves none.",
+            "title": "Entity Mention Indexes",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "memory_type",
+          "content",
+          "state",
+          "confidence",
+          "sensitivity",
+          "evidence",
+          "ambiguity",
+          "temporal",
+          "financial",
+          "entity_mention_indexes"
+        ]
+      },
+      "ExtractionDisposition": {
+        "type": "string",
+        "enum": [
+          "extract",
+          "context",
+          "abstain"
+        ],
+        "description": "What the extractor decided to do with a processing unit.\n\n``EXTRACT`` and ``CONTEXT`` both produce memories. ``CONTEXT`` marks material kept\nfor reference only. ``ABSTAIN`` means the unit does not carry enough information to\nform a reliable memory, so nothing is invented and the run is sent to review.",
+        "title": "ExtractionDisposition"
+      },
+      "FinancialInfo": {
+        "type": "object",
+        "title": "FinancialInfo",
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The single amount the note is about: the one stated number, or the result of simple arithmetic written in the message. Use null when there are several separate amounts or when no single amount is clear.",
+            "title": "Amount"
+          },
+          "component_amounts": {
+            "type": "array",
+            "description": "Every money amount written in the messages, in order of appearance.",
+            "title": "Component Amounts",
+            "items": {
+              "type": "number"
+            }
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 4217 code, only when a currency symbol, code, or name is written in the message. Use null otherwise. Never infer a currency from context or location.",
+            "title": "Currency"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Short lowercase spending category such as 'food', or null if unclear.",
+            "title": "Category"
+          },
+          "counterparty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Person or merchant the amount relates to, as written, or null.",
+            "title": "Counterparty"
+          },
+          "calculation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The arithmetic exactly as written, such as '232 + 104', or null.",
+            "title": "Calculation"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "amount",
+          "component_amounts",
+          "currency",
+          "category",
+          "counterparty",
+          "calculation"
+        ]
+      },
+      "MemoryState": {
+        "type": "string",
+        "enum": [
+          "not_applicable",
+          "open",
+          "planned",
+          "done"
+        ],
+        "description": "Whether the thing a memory describes is stated as pending or completed.\n\nThis is separate from ``MemoryStatus``, which is the lifecycle of the record itself.\n``DONE`` is only valid when the source explicitly says so: an intention or a plan is\nnever evidence of completion.",
+        "title": "MemoryState"
+      },
+      "MemoryType": {
+        "type": "string",
+        "enum": [
+          "semantic_fact",
+          "episodic_event",
+          "preference",
+          "intention",
+          "task",
+          "commitment",
+          "goal",
+          "project",
+          "decision",
+          "idea",
+          "open_loop",
+          "plan",
+          "note",
+          "reflection",
+          "resource",
+          "financial_note"
+        ],
+        "title": "MemoryType"
+      },
+      "Sensitivity": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "sensitive"
+        ],
+        "title": "Sensitivity"
+      },
+      "TemporalInfo": {
+        "type": "object",
+        "title": "TemporalInfo",
+        "properties": {
+          "expression": {
+            "type": "string",
+            "description": "The time expression exactly as written, such as 'tomorrow' or 'Jan 14'.\n\n{minLength: 1}",
+            "title": "Expression"
+          },
+          "resolved_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The calendar date the expression refers to. Fill it only when the date is fully determined by the expression and the message date. Use null whenever the year, the week, or the day is uncertain.",
+            "title": "Resolved Date"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "expression",
+          "resolved_date"
+        ]
+      }
+    },
+    "type": "object",
+    "description": "Everything an extractor returns for one processing unit.",
+    "title": "ExtractionOutput",
+    "properties": {
+      "disposition": {
+        "$ref": "#/$defs/ExtractionDisposition"
+      },
+      "disposition_reason": {
+        "type": "string",
+        "description": "One sentence explaining the disposition.\n\n{minLength: 1}",
+        "title": "Disposition Reason"
+      },
+      "memories": {
+        "type": "array",
+        "title": "Memories",
+        "items": {
+          "$ref": "#/$defs/ExtractedMemory"
+        }
+      },
+      "entity_mentions": {
+        "type": "array",
+        "title": "Entity Mentions",
+        "items": {
+          "$ref": "#/$defs/ExtractedEntityMention"
+        }
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "disposition",
+      "disposition_reason",
+      "memories",
+      "entity_mentions"
+    ]
+  }
+}

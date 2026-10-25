@@ -1,0 +1,96 @@
+MUSE: DEPLOY FOR FREE FROM A COMPUTER WITH NOTHING INSTALLED (only a web browser)
+====================================================================================
+
+You copy two things to the other computer:
+  1. muse-code.zip                                  (this folder: the code, no secrets)
+  2. C:\dev\memory-app\memory-layer-for-life\.env   (your keys: open it with Notepad)
+Keep the .env private and delete it from the other computer when you are done.
+
+Accounts you need (all free): GitHub, Render, UptimeRobot, Expo. You already have
+Neon, Supabase and Anthropic.
+
+
+PART 1. PUT THE CODE ON GITHUB (browser, about 5 minutes)
+------------------------------------------------------------------------------------
+1. github.com -> sign in (or sign up) -> "+" (top right) -> New repository.
+   Name: muse    Private: yes    Tick "Add a README file"    -> Create repository.
+2. On the repository page: green "Code" button -> "Codespaces" tab ->
+   "Create codespace on main". Wait about a minute: an editor opens in the browser.
+3. Drag muse-code.zip from your computer's folder onto the file list on the left of
+   that editor. Wait until it appears in the list.
+4. Click in the terminal at the bottom (if there is none: menu -> Terminal -> New
+   Terminal) and paste, then press Enter:
+
+     unzip -o -q muse-code.zip && rm muse-code.zip && git add -A && if git diff --cached --name-only | grep -qE '(^|/)\.env$'; then echo "STOP: a .env file would be uploaded"; else git commit -q -m "Muse app and backend" && git push -q origin HEAD && echo PUSHED; fi
+
+   It must print PUSHED. (It refuses, printing STOP, if a .env file would go to GitHub;
+   the project's .gitignore files keep them out, so that shouldn't happen.)
+
+
+PART 2. DEPLOY THE BACKEND ON RENDER (browser, about 10 minutes)
+------------------------------------------------------------------------------------
+5. dashboard.render.com -> sign up with GitHub -> allow Render to see the "muse"
+   repository.
+6. New -> Blueprint -> choose the "muse" repository -> Render reads render.yaml and
+   shows the service "muse-api" (Docker, Free, Ohio).
+7. It asks for these values. Copy each one from the .env file (open it in Notepad;
+   copy what comes after the "=" on the line with the same name):
+     DATABASE_URL          -> the DATABASE_URL line
+     SUPABASE_URL          -> the SUPABASE_URL line
+     ANTHROPIC_API_KEY     -> the ANTHROPIC_API_KEY line
+     SUPABASE_SECRET_KEY   -> the SUPABASE_SECRET_KEY line
+     COMPOSIO_API_KEY      -> the COMPOSIO_API_KEY line
+     VOYAGE_API_KEY        -> the VOYAGE_API_KEY line
+     ACCESS_ALLOWED_EMAILS -> type your Google email exactly like this:
+                              ["your.name@gmail.com"]
+   Then click Apply (Deploy Blueprint).
+8. Wait 5 to 10 minutes until the service says "Live". Its address is shown at the top,
+   usually https://muse-api.onrender.com
+9. Open  https://muse-api.onrender.com/api/v1/health/ready  in the browser.
+   It must show:  "status":"ready","database":"connected"
+10. uptimerobot.com -> sign up -> Add New Monitor -> type HTTP(s) ->
+    URL  https://muse-api.onrender.com/api/v1/health/live  -> every 5 minutes -> Create.
+    (Without this, Render puts the free backend to sleep after 15 minutes.)
+11. supabase.com -> your project -> Authentication -> URL Configuration -> Redirect URLs:
+    make sure  memory://**  is in the list (Add URL if not).
+12. Optional, saves free database hours: console.neon.tech -> your project -> Branches ->
+    main -> compute -> Edit -> set size 0.25 CU.
+
+
+PART 3. BUILD AND INSTALL THE APP (in the same browser editor, about 25 minutes)
+------------------------------------------------------------------------------------
+13. If Render's address in step 8 was NOT https://muse-api.onrender.com, open eas.json in
+    the editor and replace https://muse-api.onrender.com (under "production") with your
+    address. Save (Ctrl+S).
+14. expo.dev -> sign up with an email and password (free).
+15. In the editor's terminal, paste these one at a time:
+
+      nvm install 22
+      npm ci
+      npx eas-cli login
+      npx eas-cli build -p android --profile production
+
+    Log in with your Expo email and password. Answer Y to "create an EAS project" and Y to
+    "generate a new Android Keystore". The build runs on Expo's servers (10-20 minutes)
+    and ends with a link and a QR code.
+16. Open the link on your Android phone (or scan the QR code) -> Install. If Android
+    blocks it: allow your browser to install apps, then Install again.
+17. Open Muse -> Sign in with Google (the email from step 7) -> send "hi", then
+    "remind me in 2 minutes to stretch".
+18. Back in the terminal, save the Expo project link to GitHub (this does not redeploy
+    the backend):
+
+      git add -A && git commit -q -m "EAS project" && git push -q origin HEAD && echo SAVED
+
+19. Close the browser tab. The codespace stops by itself after 30 minutes idle; you can
+    delete it on github.com/codespaces.
+
+
+LATER: TO DEPLOY A BACKEND CHANGE
+------------------------------------------------------------------------------------
+Open the codespace again (github.com/codespaces), change the code, then:
+  git add -A && git commit -m "what changed" && git push
+Render rebuilds and deploys by itself (only when something in memory-layer-for-life/
+changed). Migrations run when the new version starts.
+
+If something fails: docs/DEPLOYMENT.md, section 0 and section 8 (troubleshooting).

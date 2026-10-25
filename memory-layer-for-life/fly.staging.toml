@@ -1,0 +1,74 @@
+# Staging API on Fly.io: https://muse-cooper-api-staging.fly.dev
+#
+# Deploy from memory-layer-for-life/:   .\deploy\deploy.ps1 staging
+# The same image as production, with its own database (a separate Neon project) and its
+# own secrets, so a test never touches real memories. It stops when nobody uses it and
+# starts on the next request, so it costs almost nothing; while it is stopped, its
+# scheduled tasks and reminders do not run. Keep [env] in step with fly.production.toml.
+
+app = "muse-cooper-api-staging"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  release_command = "alembic upgrade head"
+  release_command_timeout = "5m"
+  strategy = "rolling"
+
+[env]
+  ENVIRONMENT = "staging"
+  APP_NAME = "muse-api-staging"
+  LOG_LEVEL = "INFO"
+  DEFAULT_TIMEZONE = "Asia/Kolkata"
+
+  ANTHROPIC_MODEL = "claude-haiku-5-5"
+  ASSISTANT_MODEL = "claude-haiku-5-5"
+  ANTHROPIC_TIMEOUT = "30"
+  ANTHROPIC_MAX_RETRIES = "3"
+  ANTHROPIC_REFUSAL_FALLBACK = "false"
+
+  # Tighter than production: staging is for trying things, not for living in.
+  ASSISTANT_DAILY_PROMPT_LIMIT = "20"
+  USAGE_CURRENCY = "INR"
+  USAGE_CURRENCY_PER_USD = "88"
+
+  DB_POOL_SIZE = "5"
+  DB_MAX_OVERFLOW = "5"
+  CORS_ORIGINS = "[]"
+
+  SCHEDULER_ENABLED = "true"
+  PROACTIVE_ENABLED = "true"
+  PIPELINE_WORKER_ENABLED = "true"
+  RETRIEVAL_INDEXER_ENABLED = "true"
+  SOURCE_SYNC_ENABLED = "true"
+  PUSH_NOTIFICATIONS_ENABLED = "true"
+  MEMORY_CAPTURE_ENABLED = "true"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Stops when idle, so its database can sleep too; the next request starts it (a few
+  # seconds' wait).
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/api/v1/health/live"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,0 +1,5228 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Second Brain API",
+    "description": "Personal Second Brain - Memory Layer for Life",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/health/live": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness check",
+        "description": "Confirms the application process is responsive.",
+        "operationId": "liveness_api_v1_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness check",
+        "description": "Verifies database connectivity.",
+        "operationId": "readiness_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingestion/units": {
+      "post": {
+        "tags": [
+          "ingestion"
+        ],
+        "summary": "Capture one processing unit",
+        "description": "Stores the messages of one unit and queues it for processing. The messages are committed before the response is sent, and processing happens afterwards, so a processing failure can never lose input. Redelivering a message with the same source id and content is safe and creates nothing new.",
+        "operationId": "ingest_unit_api_v1_ingestion_units_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestUnitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestUnitResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A source id was redelivered with new content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingestion/batches": {
+      "post": {
+        "tags": [
+          "ingestion"
+        ],
+        "summary": "Capture several processing units",
+        "description": "Stores all units in one transaction: either every unit is accepted or none is. Units are then processed one after another in the background.",
+        "operationId": "ingest_batch_api_v1_ingestion_batches_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestBatchResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A source id was redelivered with new content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/processing/runs": {
+      "get": {
+        "tags": [
+          "processing"
+        ],
+        "summary": "List processing runs",
+        "description": "Newest first. Filter by status to inspect failures or runs awaiting review.",
+        "operationId": "list_runs_api_v1_processing_runs_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ProcessingStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "raw_message_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only runs whose unit contains this message.",
+              "title": "Raw Message Id"
+            },
+            "description": "Only runs whose unit contains this message."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ProcessingRunResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/processing/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "processing"
+        ],
+        "summary": "Inspect one processing run",
+        "description": "The run, the audit log of every attempt, and the memories it produced.",
+        "operationId": "get_run_api_v1_processing_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingRunDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/processing/replays": {
+      "post": {
+        "tags": [
+          "processing"
+        ],
+        "summary": "Reprocess stored units",
+        "description": "Ensures each selected unit has a run for the current pipeline configuration. Units processed under an older configuration get a new run and keep their history. Failed runs are queued again. Succeeded runs are left alone, so replaying an unchanged configuration has no effect. Replay never creates a raw message.",
+        "operationId": "replay_api_v1_processing_replays_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplayResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/memories": {
+      "get": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "List memories",
+        "description": "Newest first. Pipeline output is `proposed` until it is reviewed.",
+        "operationId": "list_memories_api_v1_memories_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MemoryStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "memory_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MemoryType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Memory Type"
+            }
+          },
+          {
+            "name": "processing_run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only memories produced by this run.",
+              "title": "Processing Run Id"
+            },
+            "description": "Only memories produced by this run."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_MemoryResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/memories/{memory_id}": {
+      "get": {
+        "tags": [
+          "memories"
+        ],
+        "summary": "Inspect one memory with its evidence",
+        "description": "The memory, every source message it rests on with the quoted evidence, the run that produced it, and the entities it involves.",
+        "operationId": "get_memory_api_v1_memories__memory_id__get",
+        "parameters": [
+          {
+            "name": "memory_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Memory Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such memory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/console/config": {
+      "get": {
+        "tags": [
+          "console"
+        ],
+        "summary": "Describe this deployment to the console",
+        "description": "The models that can be chosen with their list prices, the limits, and the pipeline fingerprint in use. Holds no secret.",
+        "operationId": "get_config_api_v1_console_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/console/connection-check": {
+      "post": {
+        "tags": [
+          "console"
+        ],
+        "summary": "Make one tiny model call",
+        "description": "Proves that the provider can be reached and that the account can pay. It costs a few tokens and is logged like any other call. A failed call is reported in the response, not as an error.",
+        "operationId": "connection_check_api_v1_console_connection_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionCheckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The model is not offered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model provider is configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/console/pipeline-stats": {
+      "get": {
+        "tags": [
+          "console"
+        ],
+        "summary": "Count what the pipeline holds",
+        "description": "Messages, runs by status, extractions by disposition, memories, and entities.",
+        "operationId": "pipeline_stats_api_v1_console_pipeline_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-calls": {
+      "get": {
+        "tags": [
+          "model calls"
+        ],
+        "summary": "List model calls",
+        "description": "Newest first. Every call the application made to a model provider, with its tokens, estimated cost, timing, and outcome. Never the content of a call.",
+        "operationId": "list_calls_api_v1_llm_calls_get",
+        "parameters": [
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/LlmCallOrigin"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Origin"
+            }
+          },
+          {
+            "name": "operation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/LlmOperation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Operation"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/LlmCallStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "processing_run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Processing Run Id"
+            }
+          },
+          {
+            "name": "evaluation_run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Evaluation Run Id"
+            }
+          },
+          {
+            "name": "playground_run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Playground Run Id"
+            }
+          },
+          {
+            "name": "started_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Started From"
+            }
+          },
+          {
+            "name": "started_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Started Before"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_LlmCallResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-calls/usage": {
+      "get": {
+        "tags": [
+          "model calls"
+        ],
+        "summary": "Summarize usage and cost",
+        "description": "Tokens, estimated cost, latency, and failures of the selected calls, in total and by model, origin, operation, and day. Cost is an estimate from list prices.",
+        "operationId": "usage_summary_api_v1_llm_calls_usage_get",
+        "parameters": [
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/LlmCallOrigin"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Origin"
+            }
+          },
+          {
+            "name": "operation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/LlmOperation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Operation"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/LlmCallStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "processing_run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Processing Run Id"
+            }
+          },
+          {
+            "name": "evaluation_run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Evaluation Run Id"
+            }
+          },
+          {
+            "name": "playground_run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Playground Run Id"
+            }
+          },
+          {
+            "name": "started_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Started From"
+            }
+          },
+          {
+            "name": "started_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Started Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSummaryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/llm-calls/{call_id}": {
+      "get": {
+        "tags": [
+          "model calls"
+        ],
+        "summary": "Inspect one model call",
+        "operationId": "get_call_api_v1_llm_calls__call_id__get",
+        "parameters": [
+          {
+            "name": "call_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Call Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmCallResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such call",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playground/extractions": {
+      "post": {
+        "tags": [
+          "playground"
+        ],
+        "summary": "Make one test extraction",
+        "description": "Sends the messages to the model as one unit and returns what came back, after the same checks the pipeline applies. Nothing is stored as a raw message, an entity, or a memory. The test and the model call are logged. A call the model fails is reported in the response, not as an error.",
+        "operationId": "run_extraction_api_v1_playground_extractions_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaygroundRunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaygroundRunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model provider is configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "playground"
+        ],
+        "summary": "List test extractions",
+        "description": "Newest first.",
+        "operationId": "list_extractions_api_v1_playground_extractions_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_PlaygroundRunSummaryResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playground/extractions/{run_id}": {
+      "get": {
+        "tags": [
+          "playground"
+        ],
+        "summary": "Reopen one test extraction",
+        "operationId": "get_extraction_api_v1_playground_extractions__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaygroundRunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such test",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/playground/contract": {
+      "get": {
+        "tags": [
+          "playground"
+        ],
+        "summary": "Show the extraction output format",
+        "description": "The JSON Schema an extraction must satisfy, and the one the provider is given.",
+        "operationId": "get_contract_api_v1_playground_contract_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionContractResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations": {
+      "get": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "List evaluation runs",
+        "description": "Newest first. A run still marked running is updated as its cases finish.",
+        "operationId": "list_runs_api_v1_evaluations_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EvaluationRunStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "extractor_model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Extractor Model"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_EvaluationRunResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "Start an evaluation",
+        "description": "Runs the golden dataset, or the chosen cases, through a model in the background and scores every answer. This calls the model twice per case, so it costs money and sends the dataset's messages to the provider. One evaluation runs at a time.",
+        "operationId": "start_run_api_v1_evaluations_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluationStartRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationRunResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An evaluation is already running, or the dataset is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request is not valid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No model provider is configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/dataset": {
+      "get": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "Describe the golden dataset",
+        "description": "The cases that an evaluation can run, with a preview of each.",
+        "operationId": "get_dataset_api_v1_evaluations_dataset_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/failing-cases": {
+      "get": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "Cases that fail most often",
+        "description": "Across completed runs. A case that fails every time points at the case or its label; one that fails now and then points at the model or the judge.",
+        "operationId": "failing_cases_api_v1_evaluations_failing_cases_get",
+        "parameters": [
+          {
+            "name": "extractor_model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Extractor Model"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CaseFailureResponse"
+                  },
+                  "title": "Response Failing Cases Api V1 Evaluations Failing Cases Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/{run_id}": {
+      "get": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "Inspect one evaluation run",
+        "operationId": "get_run_api_v1_evaluations__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationRunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such evaluation run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/{run_id}/cases": {
+      "get": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "List the cases of a run",
+        "description": "In dataset order. Filter by outcome to see only the failures.",
+        "operationId": "list_cases_api_v1_evaluations__run_id__cases_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EvaluationCaseOutcome"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_EvaluationCaseSummaryResponse_"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such evaluation run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/{run_id}/cases/{case_id}": {
+      "get": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "Inspect one case of a run",
+        "description": "The source messages, the expected memory, what the model produced, every check, and the judge's explanations.",
+        "operationId": "get_case_api_v1_evaluations__run_id__cases__case_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationCaseDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such case in this run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/evaluations/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "evaluations"
+        ],
+        "summary": "Cancel a running evaluation",
+        "description": "Stops the run. Cases already scored are kept.",
+        "operationId": "cancel_run_api_v1_evaluations__run_id__cancel_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationRunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such evaluation run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This process is not running that run",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/{slug}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Read a written project report",
+        "description": "A Markdown report kept in the project, such as the Phase 1 report.",
+        "operationId": "get_report_api_v1_reports__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CaseFailureResponse": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "title": "Case Id"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "evaluated": {
+            "type": "integer",
+            "title": "Evaluated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "failed",
+          "evaluated"
+        ],
+        "title": "CaseFailureResponse"
+      },
+      "ConnectionCheckRequest": {
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Defaults to the configured model."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ConnectionCheckRequest"
+      },
+      "ConnectionCheckResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LlmCallResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The logged call, when it was logged."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "model",
+          "error_code",
+          "error_message",
+          "call"
+        ],
+        "title": "ConnectionCheckResponse"
+      },
+      "ConsoleConfigResponse": {
+        "properties": {
+          "app_name": {
+            "type": "string",
+            "title": "App Name"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          },
+          "provider_configured": {
+            "type": "boolean",
+            "title": "Provider Configured",
+            "description": "Whether model calls can be made."
+          },
+          "default_model": {
+            "type": "string",
+            "title": "Default Model"
+          },
+          "default_effort": {
+            "type": "string",
+            "title": "Default Effort"
+          },
+          "default_timezone": {
+            "type": "string",
+            "title": "Default Timezone"
+          },
+          "effort_levels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Effort Levels"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelOptionResponse"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "prices_checked_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Prices Checked On"
+          },
+          "prices_source": {
+            "type": "string",
+            "title": "Prices Source"
+          },
+          "pipeline": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Pipeline",
+            "description": "The pipeline fingerprint in use."
+          },
+          "limits": {
+            "$ref": "#/components/schemas/ConsoleLimitsResponse"
+          },
+          "evaluation_running": {
+            "type": "boolean",
+            "title": "Evaluation Running"
+          },
+          "dataset_available": {
+            "type": "boolean",
+            "title": "Dataset Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "app_name",
+          "environment",
+          "provider_configured",
+          "default_model",
+          "default_effort",
+          "default_timezone",
+          "effort_levels",
+          "models",
+          "prices_checked_on",
+          "prices_source",
+          "pipeline",
+          "limits",
+          "evaluation_running",
+          "dataset_available"
+        ],
+        "title": "ConsoleConfigResponse",
+        "description": "What the console needs to know about this deployment. It holds no secret."
+      },
+      "ConsoleLimitsResponse": {
+        "properties": {
+          "max_unit_messages": {
+            "type": "integer",
+            "title": "Max Unit Messages"
+          },
+          "max_content_chars": {
+            "type": "integer",
+            "title": "Max Content Chars"
+          }
+        },
+        "type": "object",
+        "required": [
+          "max_unit_messages",
+          "max_content_chars"
+        ],
+        "title": "ConsoleLimitsResponse"
+      },
+      "DailyUsageResponse": {
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "failed_calls": {
+            "type": "integer",
+            "title": "Failed Calls"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "cache_read_input_tokens": {
+            "type": "integer",
+            "title": "Cache Read Input Tokens"
+          },
+          "cache_creation_input_tokens": {
+            "type": "integer",
+            "title": "Cache Creation Input Tokens"
+          },
+          "estimated_cost_usd": {
+            "type": "number",
+            "title": "Estimated Cost Usd"
+          },
+          "unpriced_calls": {
+            "type": "integer",
+            "title": "Unpriced Calls",
+            "description": "Calls that are missing from the cost."
+          },
+          "average_duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Duration Ms"
+          },
+          "day": {
+            "type": "string",
+            "format": "date",
+            "title": "Day"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "calls",
+          "failed_calls",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_input_tokens",
+          "cache_creation_input_tokens",
+          "estimated_cost_usd",
+          "unpriced_calls",
+          "average_duration_ms",
+          "day",
+          "model"
+        ],
+        "title": "DailyUsageResponse"
+      },
+      "DatasetCaseResponse": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "title": "Case Id"
+          },
+          "expected_outcome": {
+            "$ref": "#/components/schemas/ExtractionDisposition"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "message_count": {
+            "type": "integer",
+            "title": "Message Count"
+          },
+          "preview": {
+            "type": "string",
+            "title": "Preview"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "expected_outcome",
+          "tags",
+          "message_count",
+          "preview"
+        ],
+        "title": "DatasetCaseResponse"
+      },
+      "DatasetResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem",
+            "description": "Why the dataset cannot be used, when it cannot."
+          },
+          "case_count": {
+            "type": "integer",
+            "title": "Case Count"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetCaseResponse"
+            },
+            "type": "array",
+            "title": "Cases"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "name",
+          "problem",
+          "case_count",
+          "cases"
+        ],
+        "title": "DatasetResponse"
+      },
+      "EarlierEvaluationsResponse": {
+        "properties": {
+          "runs": {
+            "type": "integer",
+            "title": "Runs"
+          },
+          "estimated_cost_usd": {
+            "type": "number",
+            "title": "Estimated Cost Usd"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runs",
+          "estimated_cost_usd"
+        ],
+        "title": "EarlierEvaluationsResponse",
+        "description": "Evaluation runs imported from report files. Their calls are not in the log."
+      },
+      "EntityType": {
+        "type": "string",
+        "enum": [
+          "person",
+          "organization",
+          "project",
+          "concept",
+          "place",
+          "event",
+          "technology",
+          "topic"
+        ],
+        "title": "EntityType"
+      },
+      "ErrorCountResponse": {
+        "properties": {
+          "error_code": {
+            "type": "string",
+            "title": "Error Code"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error_code",
+          "calls",
+          "last_seen_at"
+        ],
+        "title": "ErrorCountResponse"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error_code": {
+            "type": "string",
+            "title": "Error Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error_code",
+          "message"
+        ],
+        "title": "ErrorResponse"
+      },
+      "EvaluationCaseDetailResponse": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "title": "Case Id"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/EvaluationCaseOutcome"
+          },
+          "expected_outcome": {
+            "$ref": "#/components/schemas/ExtractionDisposition"
+          },
+          "produced_disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtractionDisposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failed_checks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Failed Checks"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "document": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Document",
+            "description": "The whole case: source messages, expected memory, produced output, every check, and the judge's explanations."
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "position",
+          "outcome",
+          "expected_outcome",
+          "produced_disposition",
+          "failed_checks",
+          "error",
+          "document"
+        ],
+        "title": "EvaluationCaseDetailResponse"
+      },
+      "EvaluationCaseOutcome": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "not_evaluated"
+        ],
+        "title": "EvaluationCaseOutcome",
+        "description": "Result of one case. ``NOT_EVALUATED`` neither passes nor fails."
+      },
+      "EvaluationCaseSummaryResponse": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "title": "Case Id"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/EvaluationCaseOutcome"
+          },
+          "expected_outcome": {
+            "$ref": "#/components/schemas/ExtractionDisposition"
+          },
+          "produced_disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtractionDisposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failed_checks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Failed Checks"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "position",
+          "outcome",
+          "expected_outcome",
+          "produced_disposition",
+          "failed_checks",
+          "error"
+        ],
+        "title": "EvaluationCaseSummaryResponse"
+      },
+      "EvaluationRunResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EvaluationRunStatus"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/EvaluationTrigger"
+          },
+          "dataset_name": {
+            "type": "string",
+            "title": "Dataset Name"
+          },
+          "extractor_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractor Model"
+          },
+          "extractor_version": {
+            "type": "string",
+            "title": "Extractor Version"
+          },
+          "extraction_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Effort"
+          },
+          "judge_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Model"
+          },
+          "judge_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Effort"
+          },
+          "judge_prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Prompt Version"
+          },
+          "concurrency": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrency"
+          },
+          "cases_total": {
+            "type": "integer",
+            "title": "Cases Total"
+          },
+          "cases_passed": {
+            "type": "integer",
+            "title": "Cases Passed"
+          },
+          "cases_failed": {
+            "type": "integer",
+            "title": "Cases Failed"
+          },
+          "cases_not_evaluated": {
+            "type": "integer",
+            "title": "Cases Not Evaluated"
+          },
+          "check_totals": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Check Totals"
+          },
+          "not_gating": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Not Gating"
+          },
+          "usage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Usage"
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Usd"
+          },
+          "calls_logged": {
+            "type": "boolean",
+            "title": "Calls Logged",
+            "description": "False for a run imported from a report file: only its totals are known."
+          },
+          "source_report": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Report"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "heartbeat_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Heartbeat At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "cases_done": {
+            "type": "integer",
+            "title": "Cases Done",
+            "description": "Cases scored or given up on so far.",
+            "readOnly": true
+          },
+          "pass_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pass Rate",
+            "description": "Passed cases as a share of evaluated cases. Null before any is evaluated.",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "trigger",
+          "dataset_name",
+          "extractor_model",
+          "extractor_version",
+          "extraction_effort",
+          "judge_model",
+          "judge_effort",
+          "judge_prompt_version",
+          "concurrency",
+          "cases_total",
+          "cases_passed",
+          "cases_failed",
+          "cases_not_evaluated",
+          "check_totals",
+          "not_gating",
+          "usage",
+          "estimated_cost_usd",
+          "calls_logged",
+          "source_report",
+          "error_message",
+          "started_at",
+          "heartbeat_at",
+          "finished_at",
+          "created_at",
+          "cases_done",
+          "pass_rate"
+        ],
+        "title": "EvaluationRunResponse"
+      },
+      "EvaluationRunStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "completed",
+          "failed",
+          "cancelled",
+          "interrupted"
+        ],
+        "title": "EvaluationRunStatus",
+        "description": "Lifecycle of one evaluation run.\n\n``COMPLETED`` means the run reached its end, not that every case passed or even that\nevery case could be evaluated. ``INTERRUPTED`` marks a run whose process stopped."
+      },
+      "EvaluationStartRequest": {
+        "properties": {
+          "extractor_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractor Model",
+            "description": "Defaults to the configured model."
+          },
+          "extraction_effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Effort"
+          },
+          "judge_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Model",
+            "description": "Defaults to the extractor model."
+          },
+          "judge_effort": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "title": "Judge Effort",
+            "default": "high"
+          },
+          "case_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 2000,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Ids",
+            "description": "Only these cases. Leave out to run the whole dataset."
+          },
+          "concurrency": {
+            "type": "integer",
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Concurrency",
+            "default": 6
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "EvaluationStartRequest",
+        "description": "Which cases to evaluate and with which models.\n\nAn evaluation calls a model twice per case, so it costs money and sends the\ndataset's messages to the provider."
+      },
+      "EvaluationTrigger": {
+        "type": "string",
+        "enum": [
+          "console",
+          "cli",
+          "import"
+        ],
+        "title": "EvaluationTrigger",
+        "description": "How an evaluation run came to exist."
+      },
+      "ExtractionContractResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "pipeline_version": {
+            "type": "string",
+            "title": "Pipeline Version"
+          },
+          "output_schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Output Schema",
+            "description": "JSON Schema of the validated output."
+          },
+          "provider_schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provider Schema",
+            "description": "JSON Schema sent to the provider to constrain generation."
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "prompt_version",
+          "pipeline_version",
+          "output_schema",
+          "provider_schema"
+        ],
+        "title": "ExtractionContractResponse",
+        "description": "The format an extraction must have, for comparing with a test call's output."
+      },
+      "ExtractionDisposition": {
+        "type": "string",
+        "enum": [
+          "extract",
+          "context",
+          "abstain"
+        ],
+        "title": "ExtractionDisposition",
+        "description": "What the extractor decided to do with a processing unit.\n\n``EXTRACT`` and ``CONTEXT`` both produce memories. ``CONTEXT`` marks material kept\nfor reference only. ``ABSTAIN`` means the unit does not carry enough information to\nform a reliable memory, so nothing is invented and the run is sent to review."
+      },
+      "ExtractionStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "succeeded",
+          "failed",
+          "needs_review"
+        ],
+        "title": "ExtractionStatus"
+      },
+      "ExtractionSummaryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "extractor_version": {
+            "type": "string",
+            "title": "Extractor Version"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExtractionStatus"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtractionDisposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "schema_version",
+          "extractor_version",
+          "model_name",
+          "status",
+          "disposition"
+        ],
+        "title": "ExtractionSummaryResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "app_name": {
+            "type": "string",
+            "title": "App Name"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "app_name",
+          "environment"
+        ],
+        "title": "HealthResponse"
+      },
+      "IngestBatchRequest": {
+        "properties": {
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/IngestUnitRequest"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Units"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "units"
+        ],
+        "title": "IngestBatchRequest"
+      },
+      "IngestBatchResponse": {
+        "properties": {
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/IngestUnitResponse"
+            },
+            "type": "array",
+            "title": "Units"
+          }
+        },
+        "type": "object",
+        "required": [
+          "units"
+        ],
+        "title": "IngestBatchResponse"
+      },
+      "IngestUnitRequest": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/RawMessageCreate"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Messages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "messages"
+        ],
+        "title": "IngestUnitRequest",
+        "description": "One processing unit: messages that belong together and are read together.\n\nOrder matters and is preserved. A single thought sent as one message is a unit of one."
+      },
+      "IngestUnitResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/IngestedMessageResponse"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "processing_run": {
+            "$ref": "#/components/schemas/IngestedRunResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "messages",
+          "processing_run"
+        ],
+        "title": "IngestUnitResponse"
+      },
+      "IngestedMessageResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source": {
+            "$ref": "#/components/schemas/MessageSource"
+          },
+          "source_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Message Id"
+          },
+          "ingested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ingested At"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created",
+            "description": "False when this delivery matched a stored message."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "source_message_id",
+          "ingested_at",
+          "created"
+        ],
+        "title": "IngestedMessageResponse"
+      },
+      "IngestedRunResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProcessingStatus"
+          },
+          "pipeline_version": {
+            "type": "string",
+            "title": "Pipeline Version"
+          },
+          "attempt_number": {
+            "type": "integer",
+            "title": "Attempt Number"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created",
+            "description": "False when this unit already had a run for this version."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "pipeline_version",
+          "attempt_number",
+          "created"
+        ],
+        "title": "IngestedRunResponse"
+      },
+      "JsonValue": {},
+      "LatencyResponse": {
+        "properties": {
+          "p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Ms"
+          },
+          "p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "p50_ms",
+          "p95_ms"
+        ],
+        "title": "LatencyResponse"
+      },
+      "LlmCallOrigin": {
+        "type": "string",
+        "enum": [
+          "pipeline",
+          "playground",
+          "evaluation",
+          "other"
+        ],
+        "title": "LlmCallOrigin",
+        "description": "Which part of the system made a model call.\n\n``OTHER`` covers calls that belong to no run, such as a connection check."
+      },
+      "LlmCallResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/LlmOperation"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/LlmCallOrigin"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LlmCallStatus"
+          },
+          "requested_model": {
+            "type": "string",
+            "title": "Requested Model"
+          },
+          "response_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Model",
+            "description": "The model that answered. It differs after a refusal fallback."
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
+          "refusal_fallback": {
+            "type": "boolean",
+            "title": "Refusal Fallback"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "provider_error_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Error Type"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "cache_read_input_tokens": {
+            "type": "integer",
+            "title": "Cache Read Input Tokens"
+          },
+          "cache_creation_input_tokens": {
+            "type": "integer",
+            "title": "Cache Creation Input Tokens"
+          },
+          "estimated_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Cost Usd",
+            "description": "Estimate from list prices. Null when the model's price is not known."
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          },
+          "processing_run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing Run Id"
+          },
+          "attempt_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Number"
+          },
+          "evaluation_run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Run Id"
+          },
+          "evaluation_case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Case Id"
+          },
+          "playground_run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playground Run Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "operation",
+          "origin",
+          "status",
+          "requested_model",
+          "response_model",
+          "prompt_version",
+          "effort",
+          "max_tokens",
+          "refusal_fallback",
+          "stop_reason",
+          "request_id",
+          "http_status",
+          "provider_error_type",
+          "error_code",
+          "error_message",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_input_tokens",
+          "cache_creation_input_tokens",
+          "estimated_cost_usd",
+          "started_at",
+          "duration_ms",
+          "processing_run_id",
+          "attempt_number",
+          "evaluation_run_id",
+          "evaluation_case_id",
+          "playground_run_id",
+          "created_at"
+        ],
+        "title": "LlmCallResponse",
+        "description": "One logged call to a model provider. Facts about the call, never its content."
+      },
+      "LlmCallStatus": {
+        "type": "string",
+        "enum": [
+          "succeeded",
+          "failed"
+        ],
+        "title": "LlmCallStatus"
+      },
+      "LlmOperation": {
+        "type": "string",
+        "enum": [
+          "extraction",
+          "judge",
+          "connection_check"
+        ],
+        "title": "LlmOperation",
+        "description": "What a model call was made for."
+      },
+      "MemoryDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "memory_type": {
+            "$ref": "#/components/schemas/MemoryType"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "normalized_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Content"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemoryStatus"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "supersedes_memory_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Memory Id"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/MemorySourceResponse"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryEntityResponse"
+            },
+            "type": "array",
+            "title": "Entities"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "memory_type",
+          "content",
+          "normalized_content",
+          "status",
+          "confidence",
+          "valid_from",
+          "valid_until",
+          "observed_at",
+          "supersedes_memory_id",
+          "metadata",
+          "created_at",
+          "updated_at",
+          "sources",
+          "entities"
+        ],
+        "title": "MemoryDetailResponse"
+      },
+      "MemoryEntityRelation": {
+        "type": "string",
+        "enum": [
+          "mentions"
+        ],
+        "title": "MemoryEntityRelation"
+      },
+      "MemoryEntityResponse": {
+        "properties": {
+          "entity_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Entity Id"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/EntityType"
+          },
+          "canonical_name": {
+            "type": "string",
+            "title": "Canonical Name"
+          },
+          "relationship_type": {
+            "$ref": "#/components/schemas/MemoryEntityRelation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entity_id",
+          "entity_type",
+          "canonical_name",
+          "relationship_type"
+        ],
+        "title": "MemoryEntityResponse"
+      },
+      "MemoryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "memory_type": {
+            "$ref": "#/components/schemas/MemoryType"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "normalized_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Content"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MemoryStatus"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "supersedes_memory_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Memory Id"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "memory_type",
+          "content",
+          "normalized_content",
+          "status",
+          "confidence",
+          "valid_from",
+          "valid_until",
+          "observed_at",
+          "supersedes_memory_id",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryResponse"
+      },
+      "MemorySourceResponse": {
+        "properties": {
+          "raw_message_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Raw Message Id"
+          },
+          "extraction_result_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Extraction Result Id"
+          },
+          "processing_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Processing Run Id"
+          },
+          "source_role": {
+            "$ref": "#/components/schemas/SourceRole"
+          },
+          "evidence_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Text"
+          },
+          "source": {
+            "$ref": "#/components/schemas/MessageSource"
+          },
+          "source_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Message Id"
+          },
+          "source_created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Created At"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "raw_message_id",
+          "extraction_result_id",
+          "processing_run_id",
+          "source_role",
+          "evidence_text",
+          "source",
+          "source_message_id",
+          "source_created_at",
+          "content"
+        ],
+        "title": "MemorySourceResponse",
+        "description": "One piece of evidence behind a memory, with the original message it points to."
+      },
+      "MemoryStatus": {
+        "type": "string",
+        "enum": [
+          "proposed",
+          "active",
+          "superseded",
+          "retracted"
+        ],
+        "title": "MemoryStatus"
+      },
+      "MemoryType": {
+        "type": "string",
+        "enum": [
+          "semantic_fact",
+          "episodic_event",
+          "preference",
+          "intention",
+          "task",
+          "commitment",
+          "goal",
+          "project",
+          "decision",
+          "idea",
+          "open_loop",
+          "plan",
+          "note",
+          "reflection",
+          "resource",
+          "financial_note"
+        ],
+        "title": "MemoryType"
+      },
+      "MessageSource": {
+        "type": "string",
+        "enum": [
+          "whatsapp_import",
+          "manual_capture",
+          "api_input"
+        ],
+        "title": "MessageSource"
+      },
+      "ModelOptionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          },
+          "supports_refusal_fallback": {
+            "type": "boolean",
+            "title": "Supports Refusal Fallback"
+          },
+          "prices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelPricesResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the price is not known."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "is_default",
+          "supports_refusal_fallback",
+          "prices"
+        ],
+        "title": "ModelOptionResponse",
+        "description": "A model that can be chosen for a test call or an evaluation."
+      },
+      "ModelPricesResponse": {
+        "properties": {
+          "input_usd_per_mtok": {
+            "type": "number",
+            "title": "Input Usd Per Mtok"
+          },
+          "output_usd_per_mtok": {
+            "type": "number",
+            "title": "Output Usd Per Mtok"
+          },
+          "cache_write_usd_per_mtok": {
+            "type": "number",
+            "title": "Cache Write Usd Per Mtok"
+          },
+          "cache_read_usd_per_mtok": {
+            "type": "number",
+            "title": "Cache Read Usd Per Mtok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "input_usd_per_mtok",
+          "output_usd_per_mtok",
+          "cache_write_usd_per_mtok",
+          "cache_read_usd_per_mtok"
+        ],
+        "title": "ModelPricesResponse",
+        "description": "List prices in US dollars per million tokens."
+      },
+      "Page_EvaluationCaseSummaryResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationCaseSummaryResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[EvaluationCaseSummaryResponse]"
+      },
+      "Page_EvaluationRunResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationRunResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[EvaluationRunResponse]"
+      },
+      "Page_LlmCallResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LlmCallResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[LlmCallResponse]"
+      },
+      "Page_MemoryResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[MemoryResponse]"
+      },
+      "Page_PlaygroundRunSummaryResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlaygroundRunSummaryResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[PlaygroundRunSummaryResponse]"
+      },
+      "Page_ProcessingRunResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessingRunResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "Page[ProcessingRunResponse]"
+      },
+      "PipelineStage": {
+        "type": "string",
+        "enum": [
+          "normalize",
+          "extract",
+          "resolve",
+          "construct",
+          "persist"
+        ],
+        "title": "PipelineStage",
+        "description": "Stages of one processing run, in execution order."
+      },
+      "PipelineStatsResponse": {
+        "properties": {
+          "raw_messages": {
+            "type": "integer",
+            "title": "Raw Messages"
+          },
+          "entities": {
+            "type": "integer",
+            "title": "Entities"
+          },
+          "runs_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Runs By Status"
+          },
+          "extractions_by_disposition": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Extractions By Disposition"
+          },
+          "memories_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Memories By Type"
+          },
+          "memories_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Memories By Status"
+          },
+          "mentions_by_resolution": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Mentions By Resolution"
+          }
+        },
+        "type": "object",
+        "required": [
+          "raw_messages",
+          "entities",
+          "runs_by_status",
+          "extractions_by_disposition",
+          "memories_by_type",
+          "memories_by_status",
+          "mentions_by_resolution"
+        ],
+        "title": "PipelineStatsResponse"
+      },
+      "PlaygroundMessageInput": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Text"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At",
+            "description": "When the message was written. Needed to read words like 'tomorrow'."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "PlaygroundMessageInput"
+      },
+      "PlaygroundMessageResponse": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "text",
+          "sent_at"
+        ],
+        "title": "PlaygroundMessageResponse"
+      },
+      "PlaygroundRunRequest": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/PlaygroundMessageInput"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Messages"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Defaults to the configured model."
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "IANA timezone of the writer."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "messages"
+        ],
+        "title": "PlaygroundRunRequest",
+        "description": "One test call. Nothing it produces is stored as a raw message or a memory."
+      },
+      "PlaygroundRunResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlaygroundRunStatus"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/PlaygroundMessageResponse"
+            },
+            "type": "array",
+            "title": "Messages"
+          },
+          "timezone_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone Name"
+          },
+          "requested_model": {
+            "type": "string",
+            "title": "Requested Model"
+          },
+          "effort": {
+            "type": "string",
+            "title": "Effort"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output",
+            "description": "The validated extraction, after the checks the pipeline applies."
+          },
+          "raw_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Output",
+            "description": "The text the model returned, as it came."
+          },
+          "corrections": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Corrections",
+            "description": "What the system changed in the output."
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LlmCallResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The model call this test made."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "messages",
+          "timezone_name",
+          "requested_model",
+          "effort",
+          "output",
+          "raw_output",
+          "corrections",
+          "error_code",
+          "error_message",
+          "created_at",
+          "finished_at",
+          "call"
+        ],
+        "title": "PlaygroundRunResponse"
+      },
+      "PlaygroundRunStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "succeeded",
+          "failed"
+        ],
+        "title": "PlaygroundRunStatus"
+      },
+      "PlaygroundRunSummaryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlaygroundRunStatus"
+          },
+          "requested_model": {
+            "type": "string",
+            "title": "Requested Model"
+          },
+          "effort": {
+            "type": "string",
+            "title": "Effort"
+          },
+          "message_count": {
+            "type": "integer",
+            "title": "Message Count"
+          },
+          "preview": {
+            "type": "string",
+            "title": "Preview",
+            "description": "The start of the first message."
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "requested_model",
+          "effort",
+          "message_count",
+          "preview",
+          "error_code",
+          "created_at",
+          "finished_at"
+        ],
+        "title": "PlaygroundRunSummaryResponse"
+      },
+      "ProcessingRunDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProcessingStatus"
+          },
+          "pipeline_version": {
+            "type": "string",
+            "title": "Pipeline Version"
+          },
+          "attempt_number": {
+            "type": "integer",
+            "title": "Attempt Number"
+          },
+          "raw_message_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Raw Message Ids",
+            "description": "The unit, in processing order."
+          },
+          "available_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Available At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessingRunEventResponse"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "extraction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtractionSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "memory_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Memory Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "pipeline_version",
+          "attempt_number",
+          "raw_message_ids",
+          "available_at",
+          "started_at",
+          "finished_at",
+          "error_code",
+          "error_message",
+          "created_at",
+          "events",
+          "extraction",
+          "memory_ids"
+        ],
+        "title": "ProcessingRunDetailResponse"
+      },
+      "ProcessingRunEventResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "attempt_number": {
+            "type": "integer",
+            "title": "Attempt Number"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/RunEventType"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PipelineStage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "attempt_number",
+          "event_type",
+          "stage",
+          "error_code",
+          "detail",
+          "created_at"
+        ],
+        "title": "ProcessingRunEventResponse"
+      },
+      "ProcessingRunResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProcessingStatus"
+          },
+          "pipeline_version": {
+            "type": "string",
+            "title": "Pipeline Version"
+          },
+          "attempt_number": {
+            "type": "integer",
+            "title": "Attempt Number"
+          },
+          "raw_message_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Raw Message Ids",
+            "description": "The unit, in processing order."
+          },
+          "available_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Available At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "pipeline_version",
+          "attempt_number",
+          "raw_message_ids",
+          "available_at",
+          "started_at",
+          "finished_at",
+          "error_code",
+          "error_message",
+          "created_at"
+        ],
+        "title": "ProcessingRunResponse"
+      },
+      "ProcessingStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "needs_review"
+        ],
+        "title": "ProcessingStatus"
+      },
+      "RawMessageCreate": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/MessageSource"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content"
+          },
+          "source_message_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Message Id"
+          },
+          "source_created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Created At"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "content"
+        ],
+        "title": "RawMessageCreate",
+        "description": "Source envelope of one incoming message.\n\n``source_message_id`` is the identity the source gives the message. Sending it makes\ndelivery idempotent: the same id with the same content is accepted again without\ncreating a second message. Without it every delivery is a new message, because\nidentical text can legitimately be two separate messages."
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "database": {
+            "type": "string",
+            "title": "Database"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "database"
+        ],
+        "title": "ReadinessResponse"
+      },
+      "ReplayAction": {
+        "type": "string",
+        "enum": [
+          "created",
+          "requeued",
+          "unchanged"
+        ],
+        "title": "ReplayAction",
+        "description": "What a replay request did for one processing unit."
+      },
+      "ReplayOutcomeResponse": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ReplayAction"
+          },
+          "processing_run": {
+            "$ref": "#/components/schemas/ProcessingRunResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "processing_run"
+        ],
+        "title": "ReplayOutcomeResponse"
+      },
+      "ReplayRequest": {
+        "properties": {
+          "raw_message_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": "array",
+                "maxItems": 500,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Message Ids"
+          },
+          "run_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": "array",
+                "maxItems": 500,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Ids"
+          },
+          "all_units": {
+            "type": "boolean",
+            "title": "All Units",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 100
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReplayRequest",
+        "description": "Selects which units to reprocess under the current pipeline configuration.\n\nExactly one selector must be given. Replay never creates a raw message: it only\nensures each selected unit has a run for the current configuration."
+      },
+      "ReplayResponse": {
+        "properties": {
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/ReplayOutcomeResponse"
+            },
+            "type": "array",
+            "title": "Outcomes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcomes"
+        ],
+        "title": "ReplayResponse"
+      },
+      "ReportResponse": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "markdown": {
+            "type": "string",
+            "title": "Markdown"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "title",
+          "markdown",
+          "updated_at"
+        ],
+        "title": "ReportResponse"
+      },
+      "RunEventType": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "claimed",
+          "extraction_stored",
+          "extraction_reused",
+          "retry_scheduled",
+          "succeeded",
+          "needs_review",
+          "failed",
+          "requeued",
+          "lease_expired"
+        ],
+        "title": "RunEventType",
+        "description": "Entries of the append-only processing run audit log."
+      },
+      "SourceRole": {
+        "type": "string",
+        "enum": [
+          "supporting",
+          "contradicting",
+          "contextual"
+        ],
+        "title": "SourceRole"
+      },
+      "UsageGroupResponse": {
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "failed_calls": {
+            "type": "integer",
+            "title": "Failed Calls"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "cache_read_input_tokens": {
+            "type": "integer",
+            "title": "Cache Read Input Tokens"
+          },
+          "cache_creation_input_tokens": {
+            "type": "integer",
+            "title": "Cache Creation Input Tokens"
+          },
+          "estimated_cost_usd": {
+            "type": "number",
+            "title": "Estimated Cost Usd"
+          },
+          "unpriced_calls": {
+            "type": "integer",
+            "title": "Unpriced Calls",
+            "description": "Calls that are missing from the cost."
+          },
+          "average_duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Duration Ms"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "calls",
+          "failed_calls",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_input_tokens",
+          "cache_creation_input_tokens",
+          "estimated_cost_usd",
+          "unpriced_calls",
+          "average_duration_ms",
+          "key"
+        ],
+        "title": "UsageGroupResponse"
+      },
+      "UsageSummaryResponse": {
+        "properties": {
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotalsResponse"
+          },
+          "latency": {
+            "$ref": "#/components/schemas/LatencyResponse"
+          },
+          "by_model": {
+            "items": {
+              "$ref": "#/components/schemas/UsageGroupResponse"
+            },
+            "type": "array",
+            "title": "By Model"
+          },
+          "by_origin": {
+            "items": {
+              "$ref": "#/components/schemas/UsageGroupResponse"
+            },
+            "type": "array",
+            "title": "By Origin"
+          },
+          "by_operation": {
+            "items": {
+              "$ref": "#/components/schemas/UsageGroupResponse"
+            },
+            "type": "array",
+            "title": "By Operation"
+          },
+          "by_day": {
+            "items": {
+              "$ref": "#/components/schemas/DailyUsageResponse"
+            },
+            "type": "array",
+            "title": "By Day"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorCountResponse"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "earlier_evaluations": {
+            "$ref": "#/components/schemas/EarlierEvaluationsResponse"
+          },
+          "first_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Day"
+          },
+          "last_day": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Day"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "description": "Days are calendar days in this timezone."
+          }
+        },
+        "type": "object",
+        "required": [
+          "totals",
+          "latency",
+          "by_model",
+          "by_origin",
+          "by_operation",
+          "by_day",
+          "errors",
+          "earlier_evaluations",
+          "first_day",
+          "last_day",
+          "timezone"
+        ],
+        "title": "UsageSummaryResponse"
+      },
+      "UsageTotalsResponse": {
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "failed_calls": {
+            "type": "integer",
+            "title": "Failed Calls"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "cache_read_input_tokens": {
+            "type": "integer",
+            "title": "Cache Read Input Tokens"
+          },
+          "cache_creation_input_tokens": {
+            "type": "integer",
+            "title": "Cache Creation Input Tokens"
+          },
+          "estimated_cost_usd": {
+            "type": "number",
+            "title": "Estimated Cost Usd"
+          },
+          "unpriced_calls": {
+            "type": "integer",
+            "title": "Unpriced Calls",
+            "description": "Calls that are missing from the cost."
+          },
+          "average_duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Duration Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "calls",
+          "failed_calls",
+          "input_tokens",
+          "output_tokens",
+          "cache_read_input_tokens",
+          "cache_creation_input_tokens",
+          "estimated_cost_usd",
+          "unpriced_calls",
+          "average_duration_ms"
+        ],
+        "title": "UsageTotalsResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

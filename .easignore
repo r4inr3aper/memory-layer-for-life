@@ -1,0 +1,54 @@
+# What `eas build` leaves out of the upload. This file replaces .gitignore for EAS, so it
+# repeats those rules, with one difference: .env is uploaded, because it holds the public
+# Supabase values the app is built with (EXPO_PUBLIC_* only; no secrets go in it).
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+
+# local env files (the dev server's LAN hostname, not part of a build)
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+example
+
+# generated native folders
+/ios
+/android
+
+# Not part of the app: the backend (with its virtualenv and secrets), the retired Supabase
+# functions, and the docs
+memory-layer-for-life/
+supabase/
+docs/
+
+# Firebase config for Android push (kept in EAS as a secret file; see docs/DEPLOYMENT.md)
+google-services.json

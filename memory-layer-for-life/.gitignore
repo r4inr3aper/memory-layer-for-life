@@ -1,0 +1,24 @@
+__pycache__
+*.pyc
+.env
+.venv
+venv
+dist
+build
+*.egg-info
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+*.db
+*.sqlite3
+
+# Personal data. The golden dataset is built from private messages, and evaluation
+# reports quote them. Keep both out of version control unless you decide otherwise.
+golden.jsonl
+eval_reports/
+
+# Secrets for a deployed environment (deploy/secrets.example.env)
+deploy/*.secrets.env
+deploy/render.env

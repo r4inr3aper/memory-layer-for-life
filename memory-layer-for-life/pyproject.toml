@@ -1,0 +1,109 @@
+[project]
+name = "second-brain-backend"
+version = "0.1.0"
+description = "Personal Second Brain - Backend API"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.30.0,<1.0.0",
+    "pydantic>=2.9.0,<3.0.0",
+    "pydantic-settings>=2.5.0,<3.0.0",
+    "sqlalchemy[asyncio]>=2.0.35,<2.1.0",
+    "asyncpg>=0.29.0,<1.0.0",
+    "alembic>=1.13.0,<2.0.0",
+    "anthropic>=1.13.0,<2.0.0",
+    "uuid-utils>=0.9.0,<1.0.0",
+    "structlog>=24.4.0,<25.0.0",
+    "httpx>=0.27.0,<1.0.0",
+    # Verifies Supabase access tokens (ES256/RS256) against the project's published keys.
+    "pyjwt[crypto]>=2.9.0,<3.0.0",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0,<9.0.0",
+    "pytest-asyncio>=0.26.0,<1.0.0",
+    "coverage>=7.6.0,<8.0.0",
+    "ruff>=0.6.0,<1.0.0",
+    "mypy>=1.11.0,<2.0.0",
+    "jsonschema>=4.23.0,<5.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app", "evaluation"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Applied migrations are a frozen record. Their long SQL lines are left as written.
+"migrations/versions/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "evaluation", "scripts", "tests"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares dependencies and parameters as call expressions in argument defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+]
+
+[tool.ruff.lint.flake8-type-checking]
+# Pydantic and SQLAlchemy read annotations at runtime, so their imports must stay at module level.
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+    "sqlalchemy.orm.DeclarativeBase",
+    "app.db.base.Base",
+    "app.schemas.common.StrictSchema",
+]
+quote-annotations = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# One event loop for the whole session: the async engine and its connections are bound to a
+# loop, so session-scoped fixtures and function-scoped tests must share it.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "integration: needs the local PostgreSQL test database",
+]
+
+[tool.coverage.run]
+source = ["app", "evaluation"]
+# SQLAlchemy's async engine runs driver calls inside greenlets. Without this, lines that
+# execute after an awaited database call are reported as never run.
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "pragma: no cover"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_return_any = true
+warn_unused_configs = true
+files = ["app", "evaluation", "scripts"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true

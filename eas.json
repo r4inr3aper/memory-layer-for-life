@@ -1,0 +1,52 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "local": {
+      "environment": "development",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "development",
+        "EXPO_PUBLIC_API_URL": "http://192.168.1.2:8000"
+      }
+    },
+    "staging": {
+      "environment": "preview",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "staging",
+        "EXPO_PUBLIC_API_URL": "https://muse-cooper-api-staging.fly.dev"
+      }
+    },
+    "production": {
+      "environment": "production",
+      "distribution": "internal",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VARIANT": "production",
+        "EXPO_PUBLIC_API_URL": "https://muse-api.onrender.com"
+      }
+    },
+    "store": {
+      "extends": "production",
+      "distribution": "store",
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "store": {}
+  }
+}

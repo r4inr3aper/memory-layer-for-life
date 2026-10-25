@@ -1,0 +1,34 @@
+# Only what the Dockerfile copies belongs in the build context. Above all, no secrets.
+.git
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local tooling and caches
+.venv
+venv
+__pycache__
+*.pyc
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Not part of the running API
+tests
+eval_reports
+golden.jsonl
+golden.schema.json
+retrieval_queries.jsonl
+context for agent
+frontend
+deploy
+compose.yaml
+Makefile
+*.md
+!PHASE1_REPORT.md
+.gitignore
+.dockerignore

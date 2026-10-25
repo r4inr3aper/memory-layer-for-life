@@ -1,0 +1,82 @@
+# Render Blueprint: the free deployment of the backend (docs/DEPLOYMENT.md, section 0).
+#
+# Render builds memory-layer-for-life/Dockerfile from this repository, on its own servers,
+# whenever a push changes something in memory-layer-for-life/ (app-only changes don't
+# redeploy it). It runs on the free plan in Ohio, next to the Neon database. The values
+# marked "sync: false" are asked for once, when the Blueprint is created; settings that
+# are not secret live here, reviewed like code.
+services:
+  - type: web
+    name: muse-api
+    runtime: docker
+    plan: free
+    region: ohio
+    rootDir: memory-layer-for-life
+    dockerfilePath: ./memory-layer-for-life/Dockerfile
+    dockerContext: ./memory-layer-for-life
+    healthCheckPath: /api/v1/health/live
+    autoDeployTrigger: commit
+    envVars:
+      # --- Behaviour (not secret) ---------------------------------------------------
+      - key: ENVIRONMENT
+        value: production
+      - key: APP_NAME
+        value: muse-api
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DEFAULT_TIMEZONE
+        value: Asia/Kolkata
+      - key: ANTHROPIC_MODEL
+        value: claude-haiku-5-5
+      - key: ASSISTANT_MODEL
+        value: claude-haiku-5-5
+      - key: ANTHROPIC_TIMEOUT
+        value: "30"
+      - key: ANTHROPIC_MAX_RETRIES
+        value: "3"
+      - key: ANTHROPIC_REFUSAL_FALLBACK
+        value: "false"
+      - key: ASSISTANT_DAILY_PROMPT_LIMIT
+        value: "40"
+      - key: USAGE_CURRENCY
+        value: INR
+      - key: USAGE_CURRENCY_PER_USD
+        value: "88"
+      - key: CORS_ORIGINS
+        value: "[]"
+      # The free instance is small (512 MB); a few connections are plenty.
+      - key: DB_POOL_SIZE
+        value: "3"
+      - key: DB_MAX_OVERFLOW
+        value: "2"
+      # Neon's free plan counts every minute the database is awake. Background jobs run
+      # at full pace only while the app is in use; otherwise they wake together hourly,
+      # or exactly when something is due (app/services/pacing.py).
+      - key: BACKGROUND_IDLE_INTERVAL_SECONDS
+        value: "3600"
+      - key: BACKGROUND_ACTIVE_WINDOW_SECONDS
+        value: "120"
+      # The free plan has no release step, so the image migrates the database on start.
+      - key: MIGRATE_ON_START
+        value: "true"
+      # --- Secrets: asked for when the Blueprint is created ---------------------------
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Who may use the app, as a JSON list: ["you@gmail.com"]
+      - key: ACCESS_ALLOWED_EMAILS
+        sync: false
+      # Optional; leave empty to turn the feature off.
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: COMPOSIO_API_KEY
+        sync: false
+      - key: VOYAGE_API_KEY
+        sync: false
+      # Opens the operator routes (X-Operator-Key). Render generates a random one; see
+      # it under the service's Environment.
+      - key: OPERATOR_API_KEY
+        generateValue: true
