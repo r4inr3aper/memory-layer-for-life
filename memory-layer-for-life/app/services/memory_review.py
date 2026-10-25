@@ -23,10 +23,12 @@ from app.db.session import transaction
 from app.domain.enums import (
     MemoryEventAction,
     MemoryStatus,
+    ProcessingStatus,
     RunEventType,
     SourceRole,
     SuggestionKind,
 )
+from app.domain.run_state import ensure_transition
 from app.domain.errors import RecordNotFoundError
 from app.domain.memory_review import (
     LIVE_STATUSES,
@@ -86,11 +88,22 @@ class HeldBackView:
 
 
 @dataclass(frozen=True, slots=True)
+class FailedRunView:
+    run_id: uuid.UUID
+    failed_at: datetime | None
+    error_code: str | None
+    error_message: str | None
+    messages: tuple[HeldBackMessageView, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewInbox:
     proposed_count: int
     suggestions: tuple[SuggestionView, ...]
     held_back: tuple[HeldBackView, ...]
     held_back_count: int
+    failed: tuple[FailedRunView, ...]
+    failed_count: int
 
 
 class MemoryReviewService:
@@ -110,12 +123,36 @@ class MemoryReviewService:
             proposed = await MemoryRepository(session).count(principal.id, MemoryStatus.PROPOSED)
             suggestions = await self._suggestions(session, principal.id)
             held_back, held_back_count = await self._held_back(session, principal.id)
+            failed, failed_count = await self._failed(session, principal.id)
         return ReviewInbox(
             proposed_count=proposed,
             suggestions=suggestions,
             held_back=held_back,
             held_back_count=held_back_count,
+            failed=failed,
+            failed_count=failed_count,
         )
+
+    async def retry_failed(self, principal: Principal, run_id: uuid.UUID) -> None:
+        """Queue one failed run again for this owner."""
+        now = self._clock()
+        async with transaction(self._session_factory) as session:
+            runs = ProcessingRunRepository(session)
+            run = await runs.get_failed(principal.id, run_id)
+            if run is None:
+                raise RecordNotFoundError("Failed run", str(run_id))
+            ensure_transition(ProcessingStatus(run.status), ProcessingStatus.QUEUED)
+            run.status = ProcessingStatus.QUEUED.value
+            run.available_at = now
+            run.finished_at = None
+            run.error_code = None
+            run.error_message = None
+            await runs.add_event(
+                run,
+                RunEventType.REQUEUED,
+                now=now,
+                detail="Requeued by the owner from the review inbox.",
+            )
 
     async def save_held_back(
         self, principal: Principal, run_id: uuid.UUID, new: NewMemory
@@ -279,6 +316,36 @@ class MemoryReviewService:
                     ),
                 )
                 for run in held
+            ),
+            total,
+        )
+
+    async def _failed(
+        self, session: AsyncSession, owner_id: uuid.UUID
+    ) -> tuple[tuple[FailedRunView, ...], int]:
+        runs = ProcessingRunRepository(session)
+        failed, total = await runs.failed(owner_id, limit=MAX_HELD_BACK)
+        messages = await runs.messages_by_run([run.id for run in failed])
+        threads = {
+            thread_id
+            for unit in messages.values()
+            for message in unit
+            if (thread_id := chat_thread_id(message)) is not None
+        }
+        live_threads = await ChatRepository(session).existing_thread_ids(owner_id, threads)
+        return (
+            tuple(
+                FailedRunView(
+                    run_id=run.id,
+                    failed_at=run.finished_at,
+                    error_code=run.error_code,
+                    error_message=run.error_message,
+                    messages=tuple(
+                        _held_back_message(message, live_threads)
+                        for message in messages.get(run.id, [])
+                    ),
+                )
+                for run in failed
             ),
             total,
         )

@@ -5,10 +5,10 @@
  * and layout geometry tokens used across screens and components.
  */
 
-import { Platform } from 'react-native';
-import { Colors } from './colors';
+import { Platform } from "react-native";
+import { Colors } from "./colors";
 
-export { Colors } from './colors';
+export { Colors } from "./colors";
 
 /**
  * Valid theme keys supported by light and dark color palettes.
@@ -23,22 +23,22 @@ export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
  */
 export const Fonts = Platform.select({
   ios: {
-    sans: 'system-ui',
-    serif: 'ui-serif',
-    rounded: 'ui-rounded',
-    mono: 'ui-monospace',
+    sans: "system-ui",
+    serif: "ui-serif",
+    rounded: "ui-rounded",
+    mono: "ui-monospace",
   },
   default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
+    sans: "normal",
+    serif: "serif",
+    rounded: "normal",
+    mono: "monospace",
   },
   web: {
     sans: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     serif: 'Georgia, "Times New Roman", serif',
     rounded: '"SF Pro Rounded", "Hiragino Maru Gothic ProN", sans-serif',
-    mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+    mono: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
   },
 });
 
@@ -64,4 +64,3 @@ export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
  * Maximum content container width for responsive web / tablet rendering.
  */
 export const MaxContentWidth = 800;
-

@@ -431,6 +431,101 @@ async def test_a_message_without_a_proposal_cannot_be_confirmed(
     assert response.json()["error_code"] == "SCHEDULE_PROPOSAL_UNAVAILABLE"
 
 
+async def test_a_job_application_draft_card_can_be_sent(assistant_api: AssistantHarness) -> None:
+    principal = new_principal()
+    headers = assistant_api.sign_in(principal)
+    thread_id = await main_thread(assistant_api, headers)
+    assistant_api.composio.add_account(principal.id, "gmail")
+    assistant_api.model.script(
+        call(
+            "prepare_job_application_draft",
+            {
+                "linkedin_post_url": "https://www.linkedin.com/posts/example-role",
+                "recipient_email": "jobs@example.com",
+                "subject": "Application for Backend Engineer",
+                "body": "Hello team, I am applying for the backend engineer role.",
+                "company": "Example",
+                "role_title": "Backend Engineer",
+                "app": "gmail",
+                "send_tool_slug": "GMAIL_SEND_EMAIL",
+                "send_arguments": {
+                    "to": ["jobs@example.com"],
+                    "subject": "Application for Backend Engineer",
+                    "body": "Hello team, I am applying for the backend engineer role.",
+                },
+            },
+        ),
+        say("I prepared an email draft for your review."),
+    )
+
+    events = await stream(assistant_api, headers, thread_id, "Apply to this LinkedIn post")
+    message = events[-1]["message"]
+    assert message["metadata"]["job_application_draft"]["status"] == "pending"
+
+    sent = await assistant_api.client.post(
+        f"{API}/threads/{thread_id}/messages/{message['id']}/job-application/send",
+        headers=headers,
+    )
+
+    assert sent.status_code == 200
+    updated = sent.json()
+    draft = updated["metadata"]["job_application_draft"]
+    assert draft["status"] == "sent"
+    assert draft["sent_at"] is not None
+    assert assistant_api.composio.executions
+    assert assistant_api.composio.executions[-1][1] == "GMAIL_SEND_EMAIL"
+
+
+async def test_sending_a_job_draft_without_connection_marks_it_failed(
+    assistant_api: AssistantHarness,
+) -> None:
+    principal = new_principal()
+    headers = assistant_api.sign_in(principal)
+    thread_id = await main_thread(assistant_api, headers)
+    assistant_api.model.script(
+        call(
+            "prepare_job_application_draft",
+            {
+                "linkedin_post_url": "https://www.linkedin.com/posts/example-role",
+                "recipient_email": "jobs@example.com",
+                "subject": "Application",
+                "body": "Hello.",
+                "app": "gmail",
+                "send_tool_slug": "GMAIL_SEND_EMAIL",
+                "send_arguments": {"to": ["jobs@example.com"], "subject": "Application"},
+            },
+        ),
+        say("Draft ready."),
+    )
+    events = await stream(assistant_api, headers, thread_id, "draft email")
+    message_id = events[-1]["message"]["id"]
+
+    sent = await assistant_api.client.post(
+        f"{API}/threads/{thread_id}/messages/{message_id}/job-application/send",
+        headers=headers,
+    )
+
+    assert sent.status_code == 200
+    draft = sent.json()["metadata"]["job_application_draft"]
+    assert draft["status"] == "failed"
+    assert draft["error_message"]
+
+
+async def test_a_message_without_a_job_draft_cannot_be_sent(assistant_api: AssistantHarness) -> None:
+    headers = assistant_api.sign_in(new_principal())
+    thread_id = await main_thread(assistant_api, headers)
+    assistant_api.model.script(say("hello"))
+    events = await stream(assistant_api, headers, thread_id, "hi")
+
+    response = await assistant_api.client.post(
+        f"{API}/threads/{thread_id}/messages/{events[-1]['message']['id']}/job-application/send",
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "JOB_APPLICATION_DRAFT_UNAVAILABLE"
+
+
 # --- Attachments -----------------------------------------------------------------------
 
 PNG = b"\x89PNG\r\n\x1a\nnot really an image"

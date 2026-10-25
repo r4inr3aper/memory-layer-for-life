@@ -6,27 +6,27 @@
  * - Bottom: Full-width Google Sign-in action button with SVG brand mark & press feedback
  */
 
-import { LaunchScreen } from '@/components/common/LaunchScreen';
-import { Colors } from '@/constants/colors';
-import { showToast } from '@/context/ToastContext';
-import { getErrorMessage } from '@/lib/api/client';
-import { getMe } from '@/lib/api/me';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { AiSparklesIcon } from '@hugeicons/core-free-icons';
-import { HugeiconsIcon } from '@hugeicons/react-native';
-import * as Linking from 'expo-linking';
-import { useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
+import { LaunchScreen } from "@/components/common/LaunchScreen";
+import { Colors } from "@/constants/colors";
+import { showToast } from "@/context/ToastContext";
+import { getErrorMessage } from "@/lib/api/client";
+import { getMe } from "@/lib/api/me";
+import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { AiSparklesIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react-native";
+import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
+    ActivityIndicator,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import Svg, { Path } from "react-native-svg";
 /**
  * 4-Color Official Google Brand SVG Icon
  */
@@ -62,7 +62,7 @@ export default function SignInScreen() {
       .getSession()
       .then(({ data }) => {
         if (data.session) {
-          router.replace('/(tabs)/chat');
+          router.replace("/(tabs)/chat");
         } else {
           setIsCheckingSession(false);
         }
@@ -72,52 +72,58 @@ export default function SignInScreen() {
 
   const handleGoogleSignIn = async () => {
     if (!isSupabaseConfigured) {
-      showToast('Sign-in is not configured. Set the Supabase environment variables.');
+      showToast(
+        "Sign-in is not configured. Set the Supabase environment variables.",
+      );
       return;
     }
 
     setLoading(true);
     try {
-      const redirectTo = Linking.createURL('auth/callback');
+      const redirectTo = Linking.createURL("auth/callback");
       if (__DEV__) {
         // Must be allowed under Supabase > Authentication > URL Configuration > Redirect
         // URLs, or Supabase sends the user to the Site URL (localhost:3000) instead.
-        console.log('[auth] Google sign-in redirect URL:', redirectTo);
+        console.log("[auth] Google sign-in redirect URL:", redirectTo);
       }
       const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: "google",
         options: {
           redirectTo,
-          skipBrowserRedirect: true
-        }
-      })
+          skipBrowserRedirect: true,
+        },
+      });
 
       if (error) throw error;
 
-      const result = await WebBrowser.openAuthSessionAsync(data.url!, redirectTo);
-      if (result.type !== 'success') return;
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url!,
+        redirectTo,
+      );
+      if (result.type !== "success") return;
 
-      const params = new URLSearchParams(result.url.split('#')[1]);
-      const accessToken = params.get('access_token');
-      const refreshToken = params.get('refresh_token');
+      const params = new URLSearchParams(result.url.split("#")[1]);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
 
       if (!accessToken || !refreshToken) return;
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken
-      });
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
 
       if (sessionError) throw sessionError;
 
       if (sessionData.session) {
         // The backend creates the user on its first request; warm it up, but never block sign-in.
         void getMe().catch(() => undefined);
-        router.replace('/(tabs)/chat');
+        router.replace("/(tabs)/chat");
       }
     } catch (error) {
-      console.error('Google sign-in failed:', error);
-      showToast(getErrorMessage(error, 'Could not sign in with Google'));
+      console.error("Google sign-in failed:", error);
+      showToast(getErrorMessage(error, "Could not sign in with Google"));
     } finally {
       setLoading(false);
     }
@@ -128,7 +134,10 @@ export default function SignInScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+    <SafeAreaView
+      style={styles.container}
+      edges={["top", "bottom", "left", "right"]}
+    >
       <View style={styles.content}>
         {/* Center Hero: Zoop Brand Emblem & Wordmark */}
         <View style={styles.logoWrapper}>
@@ -162,7 +171,8 @@ export default function SignInScreen() {
               loading && styles.buttonDisabled,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Sign in with Google">
+            accessibilityLabel="Sign in with Google"
+          >
             {loading ? (
               <ActivityIndicator size="small" color={Colors.primary} />
             ) : (
@@ -187,22 +197,22 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 24,
     paddingTop: 80,
     paddingBottom: 48,
-    width: '100%',
+    width: "100%",
     maxWidth: 400,
-    alignSelf: 'center',
+    alignSelf: "center",
   },
   logoWrapper: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   glowRing: {
-    position: 'absolute',
+    position: "absolute",
     top: -10,
     width: 104,
     height: 104,
@@ -214,8 +224,8 @@ const styles = StyleSheet.create({
     height: 84,
     borderRadius: 42,
     backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.35,
@@ -224,19 +234,19 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
   brandName: {
     fontSize: 34,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.textPrimary,
     letterSpacing: -0.6,
   },
   actionContainer: {
-    width: '100%',
-    alignItems: 'center',
+    width: "100%",
+    alignItems: "center",
   },
   button: {
     height: 54,
@@ -244,10 +254,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.border,
     borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 24,
-    width: '100%',
+    width: "100%",
     shadowColor: Colors.black,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.05,
@@ -263,16 +273,16 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   buttonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
   iconWrapper: {
     marginRight: 12,
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.textPrimary,
     letterSpacing: -0.2,
   },

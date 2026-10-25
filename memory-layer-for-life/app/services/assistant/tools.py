@@ -52,7 +52,12 @@ from app.integrations.assistant.base import ToolDefinition
 from app.integrations.browserbase import BrowserbaseClient, BrowserRun
 from app.integrations.composio import ComposioClient
 from app.integrations.llm_calls import LlmCallContext
-from app.schemas.message_metadata import BrowserPreview, ConnectLink, ScheduleProposal
+from app.schemas.message_metadata import (
+    BrowserPreview,
+    ConnectLink,
+    JobApplicationDraft,
+    ScheduleProposal,
+)
 from app.services.assistant.context import (
     BrowserUpdate,
     ConnectLinkShown,
@@ -83,8 +88,10 @@ logger = structlog.get_logger(__name__)
 _MAX_RESULT_CHARS: Final = 12_000
 _MAX_SCHEMA_CHARS: Final = 2_500
 _MAX_TOOL_MATCHES: Final = 5
+_MAX_EMAIL_BODY_CHARS: Final = 8000
 _BROWSER_POLL_SECONDS: Final = 2.0
 _APP_SLUGS: Final = [spec.slug for spec in TOOL_CATALOG]
+_EMAIL_APPS: Final = frozenset({"gmail", "outlook"})
 # Words in a Composio tool slug that mark an action changing data. Erring towards
 # "changes data" only ever blocks a call in a scheduled run.
 _WRITE_WORDS: Final = frozenset(
@@ -581,6 +588,7 @@ class RunAppToolInput(ToolInput):
     app: str
     tool_slug: str = Field(min_length=1, max_length=200)
     arguments: dict[str, object] = Field(default_factory=dict)
+    confirmed: bool = False
 
 
 
@@ -600,6 +608,12 @@ class RunAppToolTool:
                 "app": _APP_PROPERTY,
                 "tool_slug": {"type": "string", "description": "A slug from find_app_tools."},
                 "arguments": {"type": "object", "description": "The action's input."},
+                "confirmed": {
+                    "type": "boolean",
+                    "description": (
+                        "Set true only right after the user explicitly approves a write action."
+                    ),
+                },
             },
             "required": ["app", "tool_slug", "arguments"],
         },
@@ -621,13 +635,20 @@ class RunAppToolTool:
             return ToolOutput(f"Unknown app: {app}.", is_error=True)
         if not slug.lower().startswith(f"{app}_"):
             return ToolOutput(f"{slug} is not an action of {app}.", is_error=True)
-        if (
-            turn.write_policy is WritePolicy.DELIVERY_APP_ONLY
-            and changes_data(slug)
-            and app != turn.delivery_app
-        ):
+        writes_data = changes_data(slug)
+        if turn.write_policy is WritePolicy.DELIVERY_APP_ONLY and writes_data and app != turn.delivery_app:
             return ToolOutput(
                 "A scheduled run may only change data in the app it delivers to.",
+                is_error=True,
+            )
+        if (
+            turn.write_policy is WritePolicy.CONFIRM_IN_CHAT
+            and writes_data
+            and (not run_input.confirmed or not turn.user_confirmed_action)
+        ):
+            return ToolOutput(
+                "This action changes data. Ask the user for explicit confirmation first, "
+                "then call run_app_tool again with confirmed=true in the next turn.",
                 is_error=True,
             )
 
@@ -694,6 +715,104 @@ class ConnectAppTool:
         return ToolOutput(
             f"A Connect button for {spec.name} is shown in the chat. Ask the user to tap it, "
             "finish authorizing, and tell you when they are done."
+        )
+
+
+class PrepareJobApplicationDraftInput(ToolInput):
+    linkedin_post_url: str = Field(min_length=1, max_length=2000)
+    recipient_email: str = Field(min_length=3, max_length=254)
+    subject: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=_MAX_EMAIL_BODY_CHARS)
+    company: str | None = Field(default=None, max_length=120)
+    role_title: str | None = Field(default=None, max_length=160)
+    app: str = Field(default="gmail", min_length=1, max_length=40)
+    send_tool_slug: str = Field(min_length=1, max_length=200)
+    send_arguments: dict[str, object] = Field(default_factory=dict)
+
+
+class PrepareJobApplicationDraftTool:
+    label = "Preparing your email draft"
+    definition = ToolDefinition(
+        name="prepare_job_application_draft",
+        description=(
+            "Show a review card for a job application email with a Send button. "
+            "Use only after you have gathered the post details and drafted the final email."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "linkedin_post_url": {
+                    "type": "string",
+                    "description": "The LinkedIn hiring post URL the draft is based on.",
+                },
+                "recipient_email": {
+                    "type": "string",
+                    "description": "Email address from the post.",
+                },
+                "subject": {"type": "string", "description": "Final email subject."},
+                "body": {
+                    "type": "string",
+                    "description": "Final plain-text email body to send.",
+                },
+                "company": {
+                    "type": "string",
+                    "description": "Company name, when known.",
+                },
+                "role_title": {
+                    "type": "string",
+                    "description": "Role title, when known.",
+                },
+                "app": {
+                    "type": "string",
+                    "enum": sorted(_EMAIL_APPS),
+                    "description": "Which connected email app will send this draft.",
+                },
+                "send_tool_slug": {
+                    "type": "string",
+                    "description": "The app action slug chosen from find_app_tools.",
+                },
+                "send_arguments": {
+                    "type": "object",
+                    "description": "Arguments that send_tool_slug needs to send the email.",
+                },
+            },
+            "required": [
+                "linkedin_post_url",
+                "recipient_email",
+                "subject",
+                "body",
+                "send_tool_slug",
+                "send_arguments",
+            ],
+        },
+    )
+
+    async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
+        try:
+            draft_input = PrepareJobApplicationDraftInput.model_validate(arguments)
+        except ValidationError as error:
+            return invalid_input(error)
+        app = draft_input.app.strip().lower()
+        if app not in _EMAIL_APPS:
+            return ToolOutput("Email drafts can be sent only through gmail or outlook.", is_error=True)
+        slug = draft_input.send_tool_slug.strip().upper()
+        if not slug.lower().startswith(f"{app}_"):
+            return ToolOutput(f"{slug} is not an action of {app}.", is_error=True)
+        turn.job_application_draft = JobApplicationDraft(
+            linkedin_post_url=draft_input.linkedin_post_url.strip(),
+            recipient_email=draft_input.recipient_email.strip(),
+            subject=draft_input.subject.strip(),
+            body=draft_input.body.strip(),
+            company=draft_input.company.strip() if draft_input.company else None,
+            role_title=draft_input.role_title.strip() if draft_input.role_title else None,
+            delivery_app=app,
+            send_tool_slug=slug,
+            send_arguments=draft_input.send_arguments,
+            status="pending",
+        )
+        return ToolOutput(
+            "A send-review card is shown with this draft. Tell the user to review it and "
+            "tap Send when they are ready."
         )
 
 
@@ -787,9 +906,9 @@ def format_memories(result: RetrievalResult, *, timezone_name: str) -> str:
             f"{item.rank}. [{memory_type_label(memory.memory_type.value)}, noted "
             f"{noted:%d %b %Y}, {review}] {memory.content}"
         )
-        quote = next((source.evidence or source.content for source in item.sources), None)
+        quote = next((source.evidence for source in item.sources if source.evidence), None)
         if quote:
-            lines.append(f'   The user wrote: "{" ".join(quote.split())[:_MAX_EVIDENCE_QUOTE]}"')
+            lines.append(f'   Evidence: "{" ".join(quote.split())[:_MAX_EVIDENCE_QUOTE]}"')
     if result.degraded:
         lines.append("(Search by meaning was unavailable; these were found by words and names.)")
     return "\n".join(lines)
@@ -841,6 +960,7 @@ class AssistantToolbox:
         self._app_tools: tuple[AssistantTool, ...] = (
             (FindAppToolsTool(access), RunAppToolTool(access)) if access is not None else ()
         )
+        self._prepare_job_draft = PrepareJobApplicationDraftTool() if access is not None else None
         self._connect = ConnectAppTool(connections) if composio is not None else None
 
 
@@ -863,6 +983,8 @@ class AssistantToolbox:
         if self._browse is not None:
             tools.append(self._browse)
         tools.extend(self._app_tools)
+        if self._prepare_job_draft is not None:
+            tools.append(self._prepare_job_draft)
         if self._connect is not None:
             tools.append(self._connect)
         return tools
@@ -877,7 +999,7 @@ class AssistantToolbox:
         tools.extend(self._life_read)
         tools.extend(self._app_tools)
         return tools
-
+ 
 
 
 

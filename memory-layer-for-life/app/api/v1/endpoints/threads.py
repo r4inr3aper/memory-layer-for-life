@@ -294,3 +294,31 @@ async def dismiss_proposal(
     chat: ChatServiceDep,
 ) -> ChatMessageResponse:
     return to_message_response(await chat.dismiss_proposal(principal, thread_id, message_id))
+
+
+@router.post(
+    "/{thread_id}/messages/{message_id}/job-application/send",
+    response_model=ChatMessageResponse,
+    responses={
+        **_AUTH,
+        404: {"model": ErrorResponse, "description": "No such thread or message"},
+        409: {
+            "model": ErrorResponse,
+            "description": "No pending or failed job application draft on this message",
+        },
+    },
+    summary="Send a prepared job application email",
+    description=(
+        "Sends the draft card shown on an assistant message through its configured app "
+        "(for example Gmail), and updates that card's status."
+    ),
+)
+async def send_job_application_draft(
+    thread_id: uuid.UUID,
+    message_id: uuid.UUID,
+    principal: PrincipalDep,
+    chat: ChatServiceDep,
+) -> ChatMessageResponse:
+    return to_message_response(
+        await chat.send_job_application_draft(principal, thread_id, message_id)
+    )

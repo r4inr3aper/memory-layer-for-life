@@ -360,7 +360,12 @@ def build_container(
         background=background,
         token_verifier=token_verifier,
         user_service=user_service,
-        chat_service=ChatService(session_factory, clock=clock),
+        chat_service=ChatService(
+            session_factory,
+            composio=composio,
+            connections=tool_connection_service,
+            clock=clock,
+        ),
         chat_turn_service=ChatTurnService(
             session_factory,
             model=assistant_model,

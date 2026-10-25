@@ -129,6 +129,16 @@ TOOL_CATALOG: Final[tuple[ToolSpec, ...]] = (
         actions=(ToolAction("Search videos", "Find videos and their details."),),
     ),
     ToolSpec(
+        slug="linkedin",
+        name="LinkedIn",
+        description="Read post content and profile details.",
+        category="Career",
+        actions=(
+            ToolAction("Read post", "Fetch and summarize a hiring post."),
+            ToolAction("Read profile", "Look up company or person profile details."),
+        ),
+    ),
+    ToolSpec(
         slug="instagram",
         name="Instagram",
         description="Read account insights and media.",

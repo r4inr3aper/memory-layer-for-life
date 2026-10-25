@@ -19,16 +19,22 @@ from app.db.session import transaction
 from app.domain.enums import ChatRole, ProposalStatus, ThreadKind
 from app.domain.errors import (
     ChatTurnInProgressError,
+    IntegrationError,
+    IntegrationNotConfiguredError,
+    JobApplicationDraftError,
     ProtectedThreadError,
     RecordNotFoundError,
     ScheduleProposalError,
 )
 from app.domain.principal import Principal
 from app.domain.retrieval import any_term_tsquery, lexical_terms, normalize_query
+from app.domain.tool_catalog import find_tool
+from app.integrations.composio import ComposioClient, SERVICE_NAME
 from app.models.chat_message import ChatMessage
 from app.models.chat_thread import ChatThread
 from app.repositories.chat_repository import ChatRepository
-from app.schemas.message_metadata import MessageMetadata, ScheduleProposal
+from app.schemas.message_metadata import JobApplicationDraft, MessageMetadata, ScheduleProposal
+from app.services.tool_connections import ToolConnectionService
 
 MAIN_THREAD_TITLE: Final = "Main Chat"
 NEW_SIDE_THREAD_TITLE: Final = "New chat"
@@ -87,9 +93,16 @@ class MessageHit:
 
 class ChatService:
     def __init__(
-        self, session_factory: async_sessionmaker[AsyncSession], *, clock: Clock = utc_now
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        composio: ComposioClient | None = None,
+        connections: ToolConnectionService | None = None,
+        clock: Clock = utc_now,
     ) -> None:
         self._session_factory = session_factory
+        self._composio = composio
+        self._connections = connections
         self._clock = clock
 
     async def search_messages(
@@ -195,6 +208,113 @@ class ChatService:
             message.updated_at = self._clock()
             return message
 
+    async def send_job_application_draft(
+        self, principal: Principal, thread_id: uuid.UUID, message_id: uuid.UUID
+    ) -> ChatMessage:
+        """Send an email draft card the assistant prepared.
+
+        The first transaction marks the draft as sending so a second tap in parallel sees
+        it as unavailable. The final status (sent or failed) is then written back.
+        """
+        draft = await self._mark_job_draft_sending(principal, thread_id, message_id)
+        try:
+            await self._execute_job_draft(principal, draft)
+        except Exception as error:  # noqa: BLE001 - converts unknown failures to user-safe text.
+            message = await self._finish_job_draft(
+                principal,
+                thread_id,
+                message_id,
+                status="failed",
+                error_message=self._job_draft_error_message(error),
+            )
+            return message
+        return await self._finish_job_draft(
+            principal,
+            thread_id,
+            message_id,
+            status="sent",
+            error_message=None,
+        )
+
+    async def _mark_job_draft_sending(
+        self, principal: Principal, thread_id: uuid.UUID, message_id: uuid.UUID
+    ) -> JobApplicationDraft:
+        now = self._clock()
+        async with transaction(self._session_factory) as session:
+            chat = ChatRepository(session)
+            await existing_thread(chat, principal, thread_id)
+            message = await existing_message(chat, thread_id, message_id)
+            metadata = MessageMetadata.from_json(message.metadata_)
+            draft = sendable_job_application_draft(metadata)
+            metadata.job_application_draft = draft.model_copy(
+                update={"status": "sending", "error_message": None}
+            )
+            message.metadata_ = metadata.to_json()
+            message.updated_at = now
+            return draft
+
+    async def _finish_job_draft(
+        self,
+        principal: Principal,
+        thread_id: uuid.UUID,
+        message_id: uuid.UUID,
+        *,
+        status: str,
+        error_message: str | None,
+    ) -> ChatMessage:
+        now = self._clock()
+        async with transaction(self._session_factory) as session:
+            chat = ChatRepository(session)
+            await existing_thread(chat, principal, thread_id)
+            message = await existing_message(chat, thread_id, message_id)
+            metadata = MessageMetadata.from_json(message.metadata_)
+            draft = metadata.job_application_draft
+            if draft is None:
+                raise JobApplicationDraftError("This message has no job application draft.")
+            metadata.job_application_draft = draft.model_copy(
+                update={
+                    "status": status,
+                    "error_message": error_message,
+                    "sent_at": now if status == "sent" else None,
+                }
+            )
+            message.metadata_ = metadata.to_json()
+            message.updated_at = now
+            return message
+
+    async def _execute_job_draft(self, principal: Principal, draft: JobApplicationDraft) -> None:
+        composio = self._composio
+        if composio is None or self._connections is None:
+            raise IntegrationNotConfiguredError(SERVICE_NAME, "COMPOSIO_API_KEY")
+        app = draft.delivery_app.strip().lower()
+        spec = find_tool(app)
+        if spec is None:
+            raise IntegrationError(SERVICE_NAME, f"Unknown app '{app}' in this draft.")
+        if not draft.send_tool_slug.strip().lower().startswith(f"{app}_"):
+            raise IntegrationError(
+                SERVICE_NAME,
+                f"The draft's send action does not belong to {spec.name}.",
+            )
+        accounts = await self._connections.active_accounts(principal)
+        account_ids = accounts.get(app, [])
+        if not account_ids:
+            raise IntegrationError(
+                SERVICE_NAME, f"{spec.name} is not connected. Connect it and try again."
+            )
+        session_id = await composio.create_session(str(principal.id), app, account_ids)
+        execution = await composio.execute_tool(
+            session_id, draft.send_tool_slug, draft.send_arguments
+        )
+        if not execution.successful:
+            raise IntegrationError(SERVICE_NAME, execution.error or "could not send the email.")
+
+    def _job_draft_error_message(self, error: Exception) -> str:
+        if isinstance(error, IntegrationError):
+            return error.message
+        if isinstance(error, JobApplicationDraftError):
+            return error.message
+        return "Could not send the draft right now. Please try again."
+
 
 async def existing_thread(
     chat: ChatRepository, principal: Principal, thread_id: uuid.UUID, *, for_update: bool = False
@@ -222,3 +342,14 @@ def pending_proposal(metadata: MessageMetadata) -> ScheduleProposal:
     if proposal.status is not ProposalStatus.PENDING:
         raise ScheduleProposalError(f"This schedule proposal was already {proposal.status.value}.")
     return proposal
+
+
+def sendable_job_application_draft(metadata: MessageMetadata) -> JobApplicationDraft:
+    draft = metadata.job_application_draft
+    if draft is None:
+        raise JobApplicationDraftError("This message does not include a job application draft.")
+    if draft.status not in {"pending", "failed"}:
+        raise JobApplicationDraftError(
+            f"This job application draft was already {draft.status}."
+        )
+    return draft

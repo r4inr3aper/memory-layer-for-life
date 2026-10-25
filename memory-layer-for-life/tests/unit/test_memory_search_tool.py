@@ -126,8 +126,53 @@ def test_memories_read_with_their_kind_date_review_and_the_user_s_own_words() ->
     assert text.splitlines() == [
         "Memories from the user's own earlier messages, most relevant first:",
         "1. [Fact, noted 02 Oct 2026, not yet reviewed] The user's sister Priya lives in Pune.",
-        '   The user wrote: "My sister Priya lives in Pune"',
+        '   Evidence: "My sister Priya lives in Pune"',
     ]
+
+
+def test_without_explicit_evidence_the_tool_does_not_fallback_to_raw_source_text() -> None:
+    item = retrieved("Lives in Pune.")
+    source = item.sources[0]
+    no_evidence = RetrievedSource(
+        raw_message_id=source.raw_message_id,
+        role=source.role,
+        source=source.source,
+        sent_at=source.sent_at,
+        evidence=None,
+        content=source.content,
+    )
+    text = format_memories(
+        RetrievalResult(
+            query="sister",
+            items=(
+                RetrievedMemory(
+                    memory=item.memory,
+                    rank=item.rank,
+                    score=item.score,
+                    legs=item.legs,
+                    rerank_score=item.rerank_score,
+                    matched_names=item.matched_names,
+                    sources=(no_evidence,),
+                    entities=item.entities,
+                ),
+            ),
+            legs=(
+                LegReport(
+                    leg=RetrievalLeg.LEXICAL,
+                    used=True,
+                    candidates=1,
+                    duration_ms=1,
+                    error=None,
+                ),
+            ),
+            embedding_space=None,
+            reranked=False,
+            duration_ms=1,
+        ),
+        timezone_name="UTC",
+    )
+
+    assert "Evidence:" not in text
 
 
 def test_reviewed_memories_say_so() -> None:

@@ -226,6 +226,23 @@ async def dismiss_held_back(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/failed/{run_id}/retry",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={**_AUTH, 404: {"model": ErrorResponse, "description": "No such failed run"}},
+    summary="Retry a failed memory save",
+    description=(
+        "Queues the run again so the pipeline can retry extraction from the same source "
+        "messages."
+    ),
+)
+async def retry_failed_run(
+    run_id: uuid.UUID, principal: PrincipalDep, review: MemoryReviewServiceDep
+) -> Response:
+    await review.retry_failed(principal, run_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 # --- One memory --------------------------------------------------------------------------
 
 

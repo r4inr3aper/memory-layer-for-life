@@ -43,6 +43,16 @@ def _held_back_by(owner_id: uuid.UUID) -> list[ColumnElement[bool]]:
     ]
 
 
+def _failed_by(owner_id: uuid.UUID) -> list[ColumnElement[bool]]:
+    """Runs of one owner's messages that ended failed."""
+    return [
+        ProcessingRun.status == ProcessingStatus.FAILED.value,
+        ProcessingRun.raw_message_id.in_(
+            select(RawMessage.id).where(RawMessage.owner_id == owner_id)
+        ),
+    ]
+
+
 class ProcessingRunRepository(BaseRepository):
     """Persistence of processing runs, their units, their audit log, and their results."""
 
@@ -125,6 +135,30 @@ class ProcessingRunRepository(BaseRepository):
         result = await self._session.scalars(
             select(ProcessingRun)
             .where(ProcessingRun.id == run_id, *_held_back_by(owner_id))
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.first()
+
+    async def failed(self, owner_id: uuid.UUID, *, limit: int) -> tuple[list[ProcessingRun], int]:
+        """Failed runs of one owner, newest first. Returns the page and total."""
+        conditions = _failed_by(owner_id)
+        total = await self._session.scalar(
+            select(func.count()).select_from(ProcessingRun).where(*conditions)
+        )
+        rows = await self._session.scalars(
+            select(ProcessingRun)
+            .where(*conditions)
+            .order_by(ProcessingRun.finished_at.desc().nulls_last(), ProcessingRun.id.desc())
+            .limit(limit)
+        )
+        return list(rows), int(total or 0)
+
+    async def get_failed(self, owner_id: uuid.UUID, run_id: uuid.UUID) -> ProcessingRun | None:
+        """One failed run of the owner, locked for an update."""
+        result = await self._session.scalars(
+            select(ProcessingRun)
+            .where(ProcessingRun.id == run_id, *_failed_by(owner_id))
             .with_for_update()
             .execution_options(populate_existing=True)
         )

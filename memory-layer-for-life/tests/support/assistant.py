@@ -265,6 +265,7 @@ class FakeBrowser:
         self._polls: deque[BrowserRun] = deque(polls)
         self._last = start
         self.tasks: list[str] = []
+        self.stopped_runs: list[str] = []
 
     async def start_run(self, task: str) -> BrowserRun:
         self.tasks.append(task)
@@ -277,6 +278,9 @@ class FakeBrowser:
 
     async def live_view_url(self, session_id: str) -> str | None:
         return f"https://live.browserbase.example/{session_id}"
+
+    async def stop_run(self, run_id: str) -> None:
+        self.stopped_runs.append(run_id)
 
 
 class FakeTime:

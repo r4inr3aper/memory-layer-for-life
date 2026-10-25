@@ -171,6 +171,16 @@ class HeldBackResponse(ResponseSchema):
     messages: list[HeldBackMessageResponse]
 
 
+class FailedRunResponse(ResponseSchema):
+    """A run that failed to produce memories and can be retried by the owner."""
+
+    run_id: uuid.UUID
+    failed_at: datetime | None
+    error_code: str | None
+    error_message: str | None
+    messages: list[HeldBackMessageResponse]
+
+
 class ReviewInboxResponse(ResponseSchema):
     proposed_count: int = Field(description="Memories waiting to be accepted.")
     suggestions: list[SuggestionResponse] = Field(
@@ -178,6 +188,10 @@ class ReviewInboxResponse(ResponseSchema):
     )
     held_back: list[HeldBackResponse] = Field(description="Newest first, up to 30.")
     held_back_count: int
+    failed: list[FailedRunResponse] = Field(
+        description="Newest failed runs first, up to 30, with their source messages."
+    )
+    failed_count: int
 
 
 class PersonResponse(ResponseSchema):

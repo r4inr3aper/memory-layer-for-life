@@ -18,21 +18,21 @@
  * call into it is guarded: notifications must never break the app.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { isRunningInExpoGo } from 'expo';
-import Constants from 'expo-constants';
-import * as Device from 'expo-device';
-import type * as ExpoNotifications from 'expo-notifications';
-import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
-import { getMe, registerPushToken, unregisterPushToken } from '@/lib/api/me';
-import { importNotifications } from '@/lib/notificationsModule';
-import { supabase } from '@/lib/supabase';
-import { syncTimezone } from '@/lib/timezoneSync';
+import { getMe, registerPushToken, unregisterPushToken } from "@/lib/api/me";
+import { importNotifications } from "@/lib/notificationsModule";
+import { supabase } from "@/lib/supabase";
+import { syncTimezone } from "@/lib/timezoneSync";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isRunningInExpoGo } from "expo";
+import Constants from "expo-constants";
+import * as Device from "expo-device";
+import type * as ExpoNotifications from "expo-notifications";
+import { useEffect, useRef } from "react";
+import { Platform } from "react-native";
 
-const ANDROID_CHANNEL_ID = 'default';
+const ANDROID_CHANNEL_ID = "default";
 // The token this device registered last, so signing out can unregister it.
-const TOKEN_STORAGE_KEY = 'zoop.pushToken';
+const TOKEN_STORAGE_KEY = "zoop.pushToken";
 const UNREGISTER_TIMEOUT_MS = 5000;
 
 type NotificationsModule = typeof ExpoNotifications;
@@ -49,50 +49,51 @@ function isExpoGo(): boolean {
 
 /** Loads `expo-notifications`, or resolves to `null` where it cannot run. */
 function loadNotifications(): Promise<NotificationsModule | null> {
-  if (Platform.OS === 'web' || isExpoGo()) {
+  if (Platform.OS === "web" || isExpoGo()) {
     return Promise.resolve(null);
   }
   loadedModule ??= importNotifications()
     .then((module) => {
       // A package whose native side is missing can load with its functions undefined.
-      if (typeof module.setNotificationHandler !== 'function') {
-        console.warn('[notifications] Not available in this build.');
+      if (typeof module.setNotificationHandler !== "function") {
+        console.warn("[notifications] Not available in this build.");
         return null;
       }
       return module;
     })
     .catch((error: unknown) => {
-      console.warn('[notifications] Not available in this build:', error);
+      console.warn("[notifications] Not available in this build:", error);
       return null;
     });
   return loadedModule;
 }
 
 export const PUSH_NEEDS_BUILD_MESSAGE =
-  'Push notifications need an installed build of the app and an Expo project (run `eas init`). ' +
-  'Your choice is saved and takes effect there.';
+  "Push notifications need an installed build of the app and an Expo project (run `eas init`). " +
+  "Your choice is saved and takes effect there.";
 
 export type PushRegistrationResult =
-  | { status: 'registered'; token: string }
-  | { status: 'unavailable'; reason: string }
-  | { status: 'denied' };
+  | { status: "registered"; token: string }
+  | { status: "unavailable"; reason: string }
+  | { status: "denied" };
 
 function getProjectId(): string | null {
   const projectId: unknown =
-    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  return typeof projectId === 'string' && projectId ? projectId : null;
+    Constants.expoConfig?.extra?.eas?.projectId ??
+    Constants.easConfig?.projectId;
+  return typeof projectId === "string" && projectId ? projectId : null;
 }
 
 /** Why this app cannot receive push notifications, or `null` when it can. */
 export function getPushUnavailableReason(): string | null {
-  if (Platform.OS === 'web') {
-    return 'Push notifications are available in the iOS and Android app.';
+  if (Platform.OS === "web") {
+    return "Push notifications are available in the iOS and Android app.";
   }
   if (isExpoGo() || !getProjectId()) {
     return PUSH_NEEDS_BUILD_MESSAGE;
   }
   if (!Device.isDevice) {
-    return 'Push notifications need a physical device, not a simulator.';
+    return "Push notifications need a physical device, not a simulator.";
   }
   return null;
 }
@@ -109,10 +110,12 @@ async function pushSetup(): Promise<{
 }
 
 /** Android 13+ shows the permission prompt, and shows notifications, only once a channel exists. */
-async function ensureChannel(Notifications: NotificationsModule): Promise<void> {
-  if (Platform.OS === 'android') {
+async function ensureChannel(
+  Notifications: NotificationsModule,
+): Promise<void> {
+  if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-      name: 'Scheduled task results',
+      name: "Scheduled task results",
       importance: Notifications.AndroidImportance.DEFAULT,
     });
   }
@@ -120,11 +123,16 @@ async function ensureChannel(Notifications: NotificationsModule): Promise<void> 
 
 async function registerDevice(
   Notifications: NotificationsModule,
-  projectId: string
+  projectId: string,
 ): Promise<string> {
   await ensureChannel(Notifications);
-  const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
-  await registerPushToken({ token, platform: Platform.OS === 'ios' ? 'ios' : 'android' });
+  const { data: token } = await Notifications.getExpoPushTokenAsync({
+    projectId,
+  });
+  await registerPushToken({
+    token,
+    platform: Platform.OS === "ios" ? "ios" : "android",
+  });
   await rememberToken(token);
   return token;
 }
@@ -137,7 +145,7 @@ export async function registerForPushNotifications(): Promise<PushRegistrationRe
   const setup = await pushSetup();
   if (!setup) {
     return {
-      status: 'unavailable',
+      status: "unavailable",
       reason: getPushUnavailableReason() ?? PUSH_NEEDS_BUILD_MESSAGE,
     };
   }
@@ -149,9 +157,12 @@ export async function registerForPushNotifications(): Promise<PushRegistrationRe
     ({ granted } = await Notifications.requestPermissionsAsync());
   }
   if (!granted) {
-    return { status: 'denied' };
+    return { status: "denied" };
   }
-  return { status: 'registered', token: await registerDevice(Notifications, projectId) };
+  return {
+    status: "registered",
+    token: await registerDevice(Notifications, projectId),
+  };
 }
 
 /**
@@ -176,7 +187,7 @@ export async function syncPushRegistration(): Promise<void> {
       await registerDevice(Notifications, projectId);
     }
   } catch (error) {
-    console.warn('[notifications] Could not register this device:', error);
+    console.warn("[notifications] Could not register this device:", error);
   }
 }
 
@@ -193,7 +204,7 @@ export async function releasePushRegistration(): Promise<void> {
   try {
     await unregisterPushToken(token, controller.signal);
   } catch (error) {
-    console.warn('[notifications] Could not unregister this device:', error);
+    console.warn("[notifications] Could not unregister this device:", error);
   } finally {
     clearTimeout(timer);
     await rememberToken(null);
@@ -213,7 +224,7 @@ async function rememberToken(token: string | null): Promise<void> {
       await AsyncStorage.removeItem(TOKEN_STORAGE_KEY);
     }
   } catch (error) {
-    console.warn('[notifications] Could not save the push token:', error);
+    console.warn("[notifications] Could not save the push token:", error);
   }
 }
 
@@ -272,7 +283,10 @@ export function configureForegroundNotifications() {
         }),
       });
     } catch (error) {
-      console.warn('[notifications] Could not set the foreground handler:', error);
+      console.warn(
+        "[notifications] Could not set the foreground handler:",
+        error,
+      );
     }
   });
 }
@@ -281,7 +295,9 @@ export function configureForegroundNotifications() {
  * Calls `onOpenThread` when the user taps a notification that carries a `thread_id`,
  * including the tap that launched the app.
  */
-export function useNotificationThreadTaps(onOpenThread: (threadId: string) => void) {
+export function useNotificationThreadTaps(
+  onOpenThread: (threadId: string) => void,
+) {
   const onOpenThreadRef = useRef(onOpenThread);
   useEffect(() => {
     onOpenThreadRef.current = onOpenThread;
@@ -291,9 +307,12 @@ export function useNotificationThreadTaps(onOpenThread: (threadId: string) => vo
     let cancelled = false;
     let subscription: { remove: () => void } | null = null;
 
-    const handleResponse = (response: ExpoNotifications.NotificationResponse) => {
-      const threadId: unknown = response.notification.request.content.data?.thread_id;
-      if (typeof threadId === 'string' && threadId) {
+    const handleResponse = (
+      response: ExpoNotifications.NotificationResponse,
+    ) => {
+      const threadId: unknown =
+        response.notification.request.content.data?.thread_id;
+      if (typeof threadId === "string" && threadId) {
         onOpenThreadRef.current(threadId);
       }
     };
@@ -309,9 +328,13 @@ export function useNotificationThreadTaps(onOpenThread: (threadId: string) => vo
           Notifications.clearLastNotificationResponse();
           handleResponse(launchResponse);
         }
-        subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
+        subscription =
+          Notifications.addNotificationResponseReceivedListener(handleResponse);
       } catch (error) {
-        console.warn('[notifications] Could not listen for notification taps:', error);
+        console.warn(
+          "[notifications] Could not listen for notification taps:",
+          error,
+        );
       }
     });
 

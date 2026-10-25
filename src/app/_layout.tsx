@@ -11,28 +11,34 @@
  *   screen drawn is the right one; a crash anywhere shows a recovery screen instead
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import { Colors } from "@/constants/colors";
+import { AgentProfileProvider } from "@/context/AgentProfileContext";
+import { ChatSessionProvider } from "@/context/ChatSessionContext";
+import { ToastProvider } from "@/context/ToastContext";
+import { openChatThread } from "@/lib/navigation";
 import {
-  DarkTheme,
-  DefaultTheme,
-  type ErrorBoundaryProps,
-  Stack,
-  ThemeProvider,
-} from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
-import { Colors } from '@/constants/colors';
-import { AgentProfileProvider } from '@/context/AgentProfileContext';
-import { ChatSessionProvider } from '@/context/ChatSessionContext';
-import { ToastProvider } from '@/context/ToastContext';
-import { openChatThread } from '@/lib/navigation';
+    configureForegroundNotifications,
+    useNotificationThreadTaps,
+    usePushRegistration,
+} from "@/lib/pushNotifications";
+import { supabase } from "@/lib/supabase";
 import {
-  configureForegroundNotifications,
-  useNotificationThreadTaps,
-  usePushRegistration,
-} from '@/lib/pushNotifications';
-import { supabase } from '@/lib/supabase';
+    DarkTheme,
+    DefaultTheme,
+    type ErrorBoundaryProps,
+    Stack,
+    ThemeProvider,
+} from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
+import { useCallback, useEffect, useState } from "react";
+import {
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    useColorScheme,
+    View,
+} from "react-native";
 
 configureForegroundNotifications();
 
@@ -54,13 +60,14 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
       <Text style={styles.errorText}>
         {__DEV__
           ? error.message
-          : 'Zoop ran into a problem. Try again, and if it keeps happening, close and reopen the app.'}
+          : "Zoop ran into a problem. Try again, and if it keeps happening, close and reopen the app."}
       </Text>
       <TouchableOpacity
         style={styles.errorButton}
         onPress={retry}
         activeOpacity={0.8}
-        accessibilityRole="button">
+        accessibilityRole="button"
+      >
         <Text style={styles.errorButtonText}>Try again</Text>
       </TouchableOpacity>
     </View>
@@ -94,54 +101,59 @@ export default function RootLayout() {
           openChatThread(threadId);
         }
       })
-      .catch((error) => console.warn('[notifications] Could not open the chat:', error));
+      .catch((error) =>
+        console.warn("[notifications] Could not open the chat:", error),
+      );
   }, []);
   useNotificationThreadTaps(openThreadFromNotification);
   // Registers this device for whoever signs in, so results reach the right person.
   usePushRegistration();
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <ToastProvider>
         <AgentProfileProvider>
           <ChatSessionProvider>
-            <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+            <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
               <Stack.Screen name="index" options={{ headerShown: false }} />
               <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
               <Stack.Screen name="home" options={{ headerShown: false }} />
               <Stack.Screen
                 name="tools"
-                options={{ headerShown: false, animation: 'slide_from_right' }}
+                options={{ headerShown: false, animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="notifications"
-                options={{ headerShown: false, animation: 'slide_from_right' }}
+                options={{ headerShown: false, animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="help"
-                options={{ headerShown: false, animation: 'slide_from_right' }}
+                options={{ headerShown: false, animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="memories/index"
-                options={{ headerShown: false, animation: 'slide_from_right' }}
+                options={{ headerShown: false, animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="memories/[id]"
-                options={{ headerShown: false, animation: 'slide_from_right' }}
+                options={{ headerShown: false, animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="people/[id]"
-                options={{ headerShown: false, animation: 'slide_from_right' }}
+                options={{ headerShown: false, animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="import"
-                options={{ headerShown: false, animation: 'slide_from_right' }}
+                options={{ headerShown: false, animation: "slide_from_right" }}
               />
               <Stack.Screen
                 name="schedules/[id]"
-                options={{ headerShown: false, animation: 'slide_from_right' }}
+                options={{ headerShown: false, animation: "slide_from_right" }}
               />
-              <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="auth/callback"
+                options={{ headerShown: false }}
+              />
             </Stack>
             <StatusBar style="dark" />
           </ChatSessionProvider>
@@ -154,22 +166,22 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   errorScreen: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     padding: 32,
     backgroundColor: Colors.white,
     gap: 12,
   },
   errorTitle: {
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.iconDark,
   },
   errorText: {
     fontSize: 14.5,
     lineHeight: 21,
     color: Colors.textSecondary,
-    textAlign: 'center',
+    textAlign: "center",
   },
   errorButton: {
     marginTop: 8,
@@ -177,12 +189,12 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   errorButtonText: {
     fontSize: 14.5,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.white,
   },
 });

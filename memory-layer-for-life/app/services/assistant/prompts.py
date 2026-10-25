@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Final
 from zoneinfo import ZoneInfo
 
-ASSISTANT_PROMPT_VERSION: Final = "1.5"
+ASSISTANT_PROMPT_VERSION: Final = "1.7"
 DEFAULT_ASSISTANT_NAME: Final = "Cooper"
 
 
@@ -54,8 +54,17 @@ _APPS: Final = (
     "When an app is not connected, call connect_app: the app shows the user a Connect "
     "button, so do not write out links. Read-only actions can run directly. Before "
     "anything that sends, creates, changes, or deletes data, describe exactly what you "
-    "will do and wait for the user to confirm in a later message. Summarize results in "
+    "will do and wait for the user to confirm in a later message. After they explicitly "
+    "confirm, call run_app_tool with confirmed=true. Summarize results in "
     "plain words, never as raw JSON."
+)
+
+_JOB_APPLICATIONS: Final = (
+    "For job-application requests from a LinkedIn post, first read the post details with "
+    "tools (LinkedIn if connected, otherwise browser), then use search_memories for the "
+    "user's resume and relevant profile details before drafting. Once the draft is final, "
+    "create a send-review card with prepare_job_application_draft. Do not call run_app_tool "
+    "to send in that turn. The user sends from the card's Send button."
 )
 
 _MEMORIES: Final = (
@@ -104,6 +113,7 @@ def chat_instructions(capabilities: Capabilities) -> str:
         parts.append(_BROWSER)
     if capabilities.apps:
         parts.append(_APPS)
+        parts.append(_JOB_APPLICATIONS)
     if capabilities.memories:
         parts.append(_MEMORIES)
     if capabilities.life:

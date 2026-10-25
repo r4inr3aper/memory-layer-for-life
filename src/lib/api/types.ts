@@ -103,7 +103,7 @@ export interface Usage {
  * `superseded`: replaced by a newer version or merged into another memory. `retracted`:
  * marked as wrong (kept as history, never used).
  */
-export type MemoryStatus = 'proposed' | 'active' | 'superseded' | 'retracted';
+export type MemoryStatus = "proposed" | "active" | "superseded" | "retracted";
 
 /**
  * A memory from the user's chats or written by them. `memory_type` is e.g. "semantic_fact"
@@ -124,17 +124,17 @@ export interface MemoryItem {
   created_at: string;
   updated_at: string;
   /** Who wrote the text: the memory pipeline, or the user (by hand or by correcting). */
-  created_by: 'pipeline' | 'user';
+  created_by: "pipeline" | "user";
   /** Health, feelings, or other private matters: shown here, never given to Cooper. */
   sensitive: boolean;
   /** Whether what it describes is open, planned, or done. */
-  state: 'not_applicable' | 'open' | 'planned' | 'done' | null;
+  state: "not_applicable" | "open" | "planned" | "done" | null;
   /** YYYY-MM-DD: when a to-do is due. */
   due_on: string | null;
   /** When the user is reminded; cleared once sent. */
   remind_at: string | null;
   closed_at: string | null;
-  close_reason: 'done' | 'dropped' | null;
+  close_reason: "done" | "dropped" | null;
 }
 
 /** What is open in the user's life now; each list soonest due first. */
@@ -166,7 +166,12 @@ export interface BriefPreview {
 }
 
 export type InsightKind =
-  'money' | 'people.top' | 'people.quiet' | 'follow_through' | 'goal.quiet' | 'theme';
+  | "money"
+  | "people.top"
+  | "people.quiet"
+  | "follow_through"
+  | "goal.quiet"
+  | "theme";
 
 /** Something the user's memories show over time, with the memories it rests on. */
 export interface Insight {
@@ -177,7 +182,7 @@ export interface Insight {
   body: string;
   memory_ids: string[];
   /** What opening it shows: a person, a memory, the to-do list, or the memories. */
-  target: 'person' | 'memory' | 'todo' | 'memories';
+  target: "person" | "memory" | "todo" | "memories";
   target_id: string | null;
 }
 
@@ -192,7 +197,7 @@ export interface ImportParticipant {
 export interface ChatImport {
   id: string;
   file_name: string;
-  status: 'previewed' | 'queued';
+  status: "previewed" | "queued";
   /** Most messages first. */
   participants: ImportParticipant[];
   message_count: number;
@@ -206,7 +211,12 @@ export interface ChatImport {
   /** Estimated cost of one extraction in `currency` (a decimal string), or null. */
   cost_per_conversation: string | null;
   currency: string;
-  progress: { done: number; failed: number; waiting: number; memories: number } | null;
+  progress: {
+    done: number;
+    failed: number;
+    waiting: number;
+    memories: number;
+  } | null;
   created_at: string;
 }
 
@@ -241,8 +251,8 @@ export interface MessageHit {
   message_id: string;
   thread_id: string;
   thread_title: string;
-  thread_kind: 'main' | 'side';
-  role: 'user' | 'assistant';
+  thread_kind: "main" | "side";
+  role: "user" | "assistant";
   snippet: string;
   created_at: string;
 }
@@ -251,7 +261,7 @@ export interface MemoryListParams extends PageParams {
   /** Default: `proposed` and `active`. */
   status?: MemoryStatus[];
   memory_type?: string;
-  order?: 'newest' | 'oldest';
+  order?: "newest" | "oldest";
 }
 
 /** A memory the user writes, or saves from a held-back message. Saved as `active`. */
@@ -280,7 +290,7 @@ export interface UpdateMemoryBody {
 /** A message a memory rests on. */
 export interface MemorySource {
   raw_message_id: string;
-  source_role: 'supporting' | 'contradicting' | 'contextual';
+  source_role: "supporting" | "contradicting" | "contextual";
   /** The words of the message the memory rests on. */
   evidence_text: string | null;
   source: string;
@@ -298,16 +308,16 @@ export interface MemoryEntity {
 }
 
 export type MemoryEventAction =
-  | 'created'
-  | 'accepted'
-  | 'retracted'
-  | 'restored'
-  | 'edited'
-  | 'corrected'
-  | 'superseded'
-  | 'merged'
-  | 'replaced'
-  | 'suggestion_dismissed';
+  | "created"
+  | "accepted"
+  | "retracted"
+  | "restored"
+  | "edited"
+  | "corrected"
+  | "superseded"
+  | "merged"
+  | "replaced"
+  | "suggestion_dismissed";
 
 export interface MemoryEvent {
   id: string;
@@ -333,7 +343,7 @@ export interface MemoryDetail extends MemoryItem {
   replaced_by_id: string | null;
 }
 
-export type SuggestionKind = 'duplicate' | 'conflict';
+export type SuggestionKind = "duplicate" | "conflict";
 
 /** Two memories that look like duplicates or like they conflict. `first` is the older. */
 export interface MemorySuggestion {
@@ -357,7 +367,7 @@ export interface HeldBack {
   run_id: string;
   held_at: string | null;
   /** `unclear`: nothing reliable was found. `unreadable`: the extraction was unusable. */
-  reason: 'unclear' | 'unreadable';
+  reason: "unclear" | "unreadable";
   messages: HeldBackMessage[];
 }
 
@@ -394,7 +404,7 @@ export interface PersonDetail extends Person {
   memories: MemoryItem[];
 }
 
-export type UsageGranularity = 'day' | 'week' | 'month';
+export type UsageGranularity = "day" | "week" | "month";
 
 /** One day, week, or month of usage. Periods are UTC; weeks start on Monday. */
 export interface UsagePeriod {
@@ -428,7 +438,7 @@ export interface AccountDeletion {
   identity_deleted: boolean;
 }
 
-export type DevicePlatform = 'ios' | 'android' | 'web';
+export type DevicePlatform = "ios" | "android" | "web";
 
 export interface RegisterPushTokenBody {
   /** An Expo push token, e.g. `ExponentPushToken[...]`. */
@@ -450,7 +460,7 @@ export interface FeedbackResult {
 
 // --- Threads and messages --------------------------------------------------------------
 
-export type ThreadKind = 'main' | 'side';
+export type ThreadKind = "main" | "side";
 
 export interface Thread {
   id: string;
@@ -461,9 +471,13 @@ export interface Thread {
   updated_at: string;
 }
 
-export type ChatRole = 'user' | 'assistant';
+export type ChatRole = "user" | "assistant";
 
-export type BrowserPreviewStatus = 'running' | 'completed' | 'failed' | 'login_required';
+export type BrowserPreviewStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "login_required";
 
 /** A cloud browser the assistant used. `live_view_url` shows it while it runs. */
 export interface BrowserPreview {
@@ -486,15 +500,32 @@ export interface ConnectLink {
  * month runs on its last day). interval: every `interval_hours` from `start_date` at
  * `local_time`.
  */
-export type ScheduleFrequency = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval';
+export type ScheduleFrequency =
+  | "once"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "interval";
 
 export type Weekday =
-  'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
 
 export type ScheduleDelivery =
-  'chat' | 'slack' | 'email' | 'calendar' | 'notion' | 'teams' | 'discord';
+  | "chat"
+  | "slack"
+  | "email"
+  | "calendar"
+  | "notion"
+  | "teams"
+  | "discord";
 
-export type ProposalStatus = 'pending' | 'confirmed' | 'dismissed';
+export type ProposalStatus = "pending" | "confirmed" | "dismissed";
 
 /** A schedule the assistant proposed. It exists only once the user confirms it. */
 export interface ScheduleProposal {
@@ -520,7 +551,7 @@ export interface ScheduleProposal {
 }
 
 /** `skipped`: the slot was not run (missed by too much, or an earlier run was going). */
-export type ScheduleRunStatus = 'running' | 'succeeded' | 'failed' | 'skipped';
+export type ScheduleRunStatus = "running" | "succeeded" | "failed" | "skipped";
 
 /** Marks a message that delivered the result of a scheduled run. */
 export interface ScheduledRunNote {
@@ -549,9 +580,26 @@ export interface BriefNote {
   follow_ups: { memory_id: string; content: string }[];
 }
 
+/** A review card for a prepared job application email. */
+export interface JobApplicationDraft {
+  linkedin_post_url: string;
+  recipient_email: string;
+  subject: string;
+  body: string;
+  company?: string | null;
+  role_title?: string | null;
+  delivery_app: string;
+  send_tool_slug: string;
+  send_arguments: Record<string, unknown>;
+  status: "pending" | "sending" | "sent" | "failed" | "dismissed";
+  error_message?: string | null;
+  sent_at?: string | null;
+}
+
 export interface MessageMetadata {
   browser_preview?: BrowserPreview | null;
   connect_link?: ConnectLink | null;
+  job_application_draft?: JobApplicationDraft | null;
   schedule_proposal?: ScheduleProposal | null;
   scheduled_run?: ScheduledRunNote | null;
   attachments?: AttachmentNote[] | null;
@@ -575,7 +623,11 @@ export interface CreateThreadBody {
 
 /** Images (jpeg, png, gif, webp) and PDFs; at most 3 files of 5 MB each by default. */
 export type AttachmentMediaType =
-  'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' | 'application/pdf';
+  | "image/jpeg"
+  | "image/png"
+  | "image/gif"
+  | "image/webp"
+  | "application/pdf";
 
 export interface AttachmentInput {
   name: string;
@@ -596,40 +648,40 @@ export interface SendMessageBody {
 
 /** The server stored the user's message. */
 export interface TurnStartedEvent {
-  type: 'turn_started';
+  type: "turn_started";
   user_message: ChatMessage;
 }
 
 export interface TextDeltaEvent {
-  type: 'text_delta';
+  type: "text_delta";
   text: string;
 }
 
 export interface ToolStartedEvent {
-  type: 'tool_started';
+  type: "tool_started";
   tool: string;
   /** Human-readable activity, e.g. "Browsing the web". */
   label: string;
 }
 
 export interface BrowserEvent {
-  type: 'browser';
+  type: "browser";
   browser_preview: BrowserPreview;
 }
 
 export interface ConnectLinkEvent {
-  type: 'connect_link';
+  type: "connect_link";
   connect_link: ConnectLink;
 }
 
 /** The stored assistant reply. */
 export interface FinalEvent {
-  type: 'final';
+  type: "final";
   message: ChatMessage;
 }
 
 export interface StreamErrorEvent {
-  type: 'error';
+  type: "error";
   error_code: string;
   message: string;
 }
@@ -646,9 +698,9 @@ export type ChatStreamEvent =
 // --- Schedules -------------------------------------------------------------------------
 
 /** `completed`: a one-time schedule whose moment has come. */
-export type ScheduleStatus = 'active' | 'paused' | 'cancelled' | 'completed';
+export type ScheduleStatus = "active" | "paused" | "cancelled" | "completed";
 
-export type ScheduleRunTrigger = 'schedule' | 'manual';
+export type ScheduleRunTrigger = "schedule" | "manual";
 
 export interface Schedule {
   id: string;
@@ -749,7 +801,12 @@ export interface ConfirmProposalResult {
 
 // --- App connections -------------------------------------------------------------------
 
-export type ToolConnectionStatus = 'not_connected' | 'pending' | 'connected' | 'failed' | 'revoked';
+export type ToolConnectionStatus =
+  | "not_connected"
+  | "pending"
+  | "connected"
+  | "failed"
+  | "revoked";
 
 export interface ToolAction {
   name: string;

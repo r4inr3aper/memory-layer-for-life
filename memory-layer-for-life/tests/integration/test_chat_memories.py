@@ -298,4 +298,7 @@ def test_only_messages_of_a_few_words_are_worth_capturing() -> None:
     assert not worth_capturing("hi")
     assert not worth_capturing("thanks a")
     assert worth_capturing("I like tea")
+    assert not worth_capturing("ok thanks great")
+    assert not worth_capturing("can you find flights to goa tonight")
+    assert worth_capturing("please remind me to stretch tomorrow")
     assert not worth_capturing("   ")

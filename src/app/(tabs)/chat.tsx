@@ -10,62 +10,69 @@
  * - `prefill` route param (from Ideas): put in the input once, never sent automatically
  */
 
-import { Colors } from '@/constants/colors';
-import { useAgentProfile } from '@/context/AgentProfileContext';
-import { useChatSession, type ActiveThread } from '@/context/ChatSessionContext';
-import { showToast } from '@/context/ToastContext';
-import { streamReply } from '@/lib/api/chatStream';
-import { ApiError, getErrorMessage, isAbortError } from '@/lib/api/client';
+import { AttachmentChips } from "@/components/chat/AttachmentChips";
+import { BriefCard, ReminderCard } from "@/components/chat/LifeCards";
+import { MarkdownText } from "@/components/chat/MarkdownText";
+import { ChatBrowserPreview } from "@/components/common/ChatBrowserPreview";
+import { Colors } from "@/constants/colors";
+import { useAgentProfile } from "@/context/AgentProfileContext";
 import {
-  confirmProposal,
-  dismissProposal,
-  ensureMainThread,
-  getThread,
-  listMessages,
-} from '@/lib/api/threads';
-import type { ChatStreamEvent, SendMessageBody, Thread } from '@/lib/api/types';
-import { pickAttachments, type PendingAttachment } from '@/lib/attachmentPicker';
-import { MAX_ATTACHMENTS } from '@/lib/attachments';
-import { formatScheduleRule, formatTimezone } from '@/lib/formatSchedule';
-import { useChatKeyboard } from '@/hooks/useChatKeyboard';
-import { useVoiceInput } from '@/hooks/useVoiceInput';
-import { ChatMessage, formatMessageTime, toUiMessage } from '@/types';
-import { BriefCard, ReminderCard } from '@/components/chat/LifeCards';
-import { ChatBrowserPreview } from '@/components/common/ChatBrowserPreview';
-import { AttachmentChips } from '@/components/chat/AttachmentChips';
-import { MarkdownText } from '@/components/chat/MarkdownText';
+    useChatSession,
+    type ActiveThread,
+} from "@/context/ChatSessionContext";
+import { showToast } from "@/context/ToastContext";
+import { useChatKeyboard } from "@/hooks/useChatKeyboard";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
+import { streamReply } from "@/lib/api/chatStream";
+import { ApiError, getErrorMessage, isAbortError } from "@/lib/api/client";
 import {
-  Add01Icon,
-  Attachment01Icon,
-  Link02Icon,
-  Mic01Icon,
-  SentIcon,
-} from '@hugeicons/core-free-icons';
-import { HugeiconsIcon } from '@hugeicons/react-native';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
-import { useCallback, useEffect, useRef, useState } from 'react';
+    confirmProposal,
+    dismissProposal,
+    ensureMainThread,
+    getThread,
+    listMessages,
+    sendJobApplicationDraft,
+} from "@/lib/api/threads";
+import type { ChatStreamEvent, SendMessageBody, Thread } from "@/lib/api/types";
 import {
-  ActivityIndicator,
-  AppState,
-  Keyboard,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
-} from 'react-native';
-import Animated from 'react-native-reanimated';
+    pickAttachments,
+    type PendingAttachment,
+} from "@/lib/attachmentPicker";
+import { MAX_ATTACHMENTS } from "@/lib/attachments";
+import { formatScheduleRule, formatTimezone } from "@/lib/formatSchedule";
+import { ChatMessage, formatMessageTime, toUiMessage } from "@/types";
+import {
+    Add01Icon,
+    Attachment01Icon,
+    Link02Icon,
+    Mic01Icon,
+    SentIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react-native";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+    ActivityIndicator,
+    AppState,
+    Keyboard,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View,
+} from "react-native";
+import Animated from "react-native-reanimated";
 
 const MESSAGE_PAGE_LIMIT = 50;
-const THINKING_TEXT = 'Thinking...';
-const TYPING_TEXT = 'AI is typing...';
-const NO_REPLY_TEXT = 'No Response from AI agent, Try Again';
-const LOCAL_ID_PREFIX = 'local-';
+const THINKING_TEXT = "Thinking...";
+const TYPING_TEXT = "AI is typing...";
+const NO_REPLY_TEXT = "No Response from AI agent, Try Again";
+const LOCAL_ID_PREFIX = "local-";
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -78,7 +85,7 @@ export default function ChatScreen() {
   const [loadedThreadId, setLoadedThreadId] = useState<string | null>(null);
   const [hasEarlier, setHasEarlier] = useState(false);
   const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
-  const [inputText, setInputText] = useState('');
+  const [inputText, setInputText] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isPicking, setIsPicking] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -102,21 +109,25 @@ export default function ChatScreen() {
     scrollY: number;
   } | null>(null);
   // The input text when dictation started; the transcript is added after it.
-  const voiceBaseTextRef = useRef('');
+  const voiceBaseTextRef = useRef("");
 
   const { thread_id, prefill } = useLocalSearchParams<{
     thread_id?: string;
     prefill?: string;
   }>();
-  const routeThreadId = typeof thread_id === 'string' && thread_id ? thread_id : null;
-  const routePrefill = typeof prefill === 'string' && prefill ? prefill : undefined;
+  const routeThreadId =
+    typeof thread_id === "string" && thread_id ? thread_id : null;
+  const routePrefill =
+    typeof prefill === "string" && prefill ? prefill : undefined;
 
   const threadId = thread?.id ?? null;
   const visibleMessages = loadedThreadId === threadId ? messages : [];
 
   // Put a prompt from the route (e.g. an idea) in the input once per navigation; the
   // effect below then clears the param so it is not applied again.
-  const [appliedPrefill, setAppliedPrefill] = useState<string | undefined>(undefined);
+  const [appliedPrefill, setAppliedPrefill] = useState<string | undefined>(
+    undefined,
+  );
   if (routePrefill !== appliedPrefill) {
     setAppliedPrefill(routePrefill);
     if (routePrefill) {
@@ -146,8 +157,8 @@ export default function ChatScreen() {
       })
       .catch((error) => {
         if (isAbortError(error, controller.signal)) return;
-        console.error('Failed to open chat:', error);
-        showToast(getErrorMessage(error, 'Could not open the chat'));
+        console.error("Failed to open chat:", error);
+        showToast(getErrorMessage(error, "Could not open the chat"));
       });
 
     return () => controller.abort();
@@ -165,17 +176,20 @@ export default function ChatScreen() {
   // whenever the screen comes back into focus (a Feed row, the drawer) or the app returns
   // to the foreground (a notification tap). The first focus is the initial load itself.
   const [refreshCount, setRefreshCount] = useState(0);
-  const requestRefresh = useCallback(() => setRefreshCount((count) => count + 1), []);
+  const requestRefresh = useCallback(
+    () => setRefreshCount((count) => count + 1),
+    [],
+  );
   const hasFocusedRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
       if (hasFocusedRef.current) requestRefresh();
       hasFocusedRef.current = true;
-    }, [requestRefresh])
+    }, [requestRefresh]),
   );
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') requestRefresh();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") requestRefresh();
     });
     return () => subscription.remove();
   }, [requestRefresh]);
@@ -215,11 +229,11 @@ export default function ChatScreen() {
       .catch((error) => {
         if (isAbortError(error, controller.signal)) return;
         if (isRefresh) {
-          console.warn('Failed to check for new messages:', error);
+          console.warn("Failed to check for new messages:", error);
           return;
         }
-        console.error('Failed to load messages:', error);
-        showToast(getErrorMessage(error, 'Could not load messages'));
+        console.error("Failed to load messages:", error);
+        showToast(getErrorMessage(error, "Could not load messages"));
       });
 
     return () => controller.abort();
@@ -240,8 +254,13 @@ export default function ChatScreen() {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [messages, scrollViewRef]);
 
-  const updateMessage = (messageId: string, update: (msg: ChatMessage) => ChatMessage) => {
-    setMessages((prev) => prev.map((msg) => (msg.id === messageId ? update(msg) : msg)));
+  const updateMessage = (
+    messageId: string,
+    update: (msg: ChatMessage) => ChatMessage,
+  ) => {
+    setMessages((prev) =>
+      prev.map((msg) => (msg.id === messageId ? update(msg) : msg)),
+    );
   };
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -276,7 +295,9 @@ export default function ChatScreen() {
       if (currentThreadIdRef.current !== threadId) return;
 
       const shownIds = new Set(messages.map((msg) => msg.id));
-      const older = page.items.filter((msg) => !shownIds.has(msg.id)).map(toUiMessage);
+      const older = page.items
+        .filter((msg) => !shownIds.has(msg.id))
+        .map(toUiMessage);
       if (older.length > 0) {
         prependAnchorRef.current = {
           contentHeight: contentHeightRef.current,
@@ -289,8 +310,8 @@ export default function ChatScreen() {
       }
       setHasEarlier(page.total > storedCount + page.items.length);
     } catch (error) {
-      console.error('Failed to load earlier messages:', error);
-      showToast(getErrorMessage(error, 'Could not load earlier messages'));
+      console.error("Failed to load earlier messages:", error);
+      showToast(getErrorMessage(error, "Could not load earlier messages"));
     } finally {
       setIsLoadingEarlier(false);
     }
@@ -307,22 +328,29 @@ export default function ChatScreen() {
     try {
       const picked = await pickAttachments(attachments.length);
       if (picked.attachments.length > 0) {
-        setAttachments((prev) => [...prev, ...picked.attachments].slice(0, MAX_ATTACHMENTS));
+        setAttachments((prev) =>
+          [...prev, ...picked.attachments].slice(0, MAX_ATTACHMENTS),
+        );
       }
       if (picked.errors.length > 0) {
         const more = picked.errors.length - 1;
-        showToast(more > 0 ? `${picked.errors[0]} (+${more} more)` : picked.errors[0], 4000);
+        showToast(
+          more > 0 ? `${picked.errors[0]} (+${more} more)` : picked.errors[0],
+          4000,
+        );
       }
     } catch (error) {
-      console.error('Failed to pick files:', error);
-      showToast(getErrorMessage(error, 'Could not open the file picker'));
+      console.error("Failed to pick files:", error);
+      showToast(getErrorMessage(error, "Could not open the file picker"));
     } finally {
       setIsPicking(false);
     }
   };
 
   const handleRemoveAttachment = (attachmentId: string) => {
-    setAttachments((prev) => prev.filter((attachment) => attachment.id !== attachmentId));
+    setAttachments((prev) =>
+      prev.filter((attachment) => attachment.id !== attachmentId),
+    );
   };
 
   const handleMicPress = () => {
@@ -340,7 +368,7 @@ export default function ChatScreen() {
     // Until the thread's messages are shown, a sent message would be invisible, or wiped
     // when they arrive; a failed load is retried here.
     if (!threadId || loadedThreadId !== threadId) {
-      showToast('The chat is still loading. Try again in a moment.');
+      showToast("The chat is still loading. Try again in a moment.");
       if (threadId) requestRefresh();
       return;
     }
@@ -358,7 +386,7 @@ export default function ChatScreen() {
       ...prev,
       {
         id: userMessageId,
-        sender: 'user',
+        sender: "user",
         text,
         timestamp,
         pending: true,
@@ -372,14 +400,14 @@ export default function ChatScreen() {
       },
       {
         id: agentMessageId,
-        sender: 'agent',
+        sender: "agent",
         text: THINKING_TEXT,
         timestamp,
         pending: true,
         streaming: true,
       },
     ]);
-    setInputText('');
+    setInputText("");
     setAttachments([]);
     setTypingText(TYPING_TEXT);
     setIsSending(true);
@@ -395,11 +423,11 @@ export default function ChatScreen() {
 
     const handleEvent = (event: ChatStreamEvent) => {
       switch (event.type) {
-        case 'turn_started':
+        case "turn_started":
           isStored = true;
           updateMessage(userMessageId, () => toUiMessage(event.user_message));
           break;
-        case 'text_delta': {
+        case "text_delta": {
           const isFirstDelta = !hasReplyText;
           hasReplyText = true;
           setTypingText(TYPING_TEXT);
@@ -409,7 +437,7 @@ export default function ChatScreen() {
           }));
           break;
         }
-        case 'tool_started': {
+        case "tool_started": {
           const activity = `${event.label}...`;
           setTypingText(activity);
           if (!hasReplyText) {
@@ -417,20 +445,20 @@ export default function ChatScreen() {
           }
           break;
         }
-        case 'browser':
+        case "browser":
           updateReply((msg) => ({
             ...msg,
             browserPreview: event.browser_preview,
           }));
           break;
-        case 'connect_link':
+        case "connect_link":
           updateReply((msg) => ({ ...msg, connectCta: event.connect_link }));
           break;
-        case 'final':
+        case "final":
           isFinished = true;
           updateReply(() => toUiMessage(event.message));
           break;
-        case 'error':
+        case "error":
           isFinished = true;
           updateReply((msg) => ({
             ...msg,
@@ -468,14 +496,16 @@ export default function ChatScreen() {
     } catch (error) {
       if (isAbortError(error, controller.signal)) return;
 
-      console.error('Error sending message:', error);
+      console.error("Error sending message:", error);
       // Includes the daily prompt limit: the server's message says what to do.
-      const errorMessage = getErrorMessage(error, 'Failed to send message');
+      const errorMessage = getErrorMessage(error, "Failed to send message");
       if (!isStored) {
         // The server refused the message before storing it: take both bubbles back and
         // return the text and files to the input, so nothing unsaved looks sent.
         setMessages((prev) =>
-          prev.filter((msg) => msg.id !== userMessageId && msg.id !== agentMessageId)
+          prev.filter(
+            (msg) => msg.id !== userMessageId && msg.id !== agentMessageId,
+          ),
         );
         setInputText((current) => current || text);
         setAttachments((current) => (current.length > 0 ? current : files));
@@ -496,36 +526,41 @@ export default function ChatScreen() {
     }
   };
 
-  const handleOpenConnectLink = async (connectUrl: string, toolName: string) => {
+  const handleOpenConnectLink = async (
+    connectUrl: string,
+    toolName: string,
+  ) => {
     try {
       showToast(`Opening ${toolName} connection...`);
-      if (Platform.OS === 'web') {
-        window.open(connectUrl, '_blank');
+      if (Platform.OS === "web") {
+        window.open(connectUrl, "_blank");
       } else {
         await WebBrowser.openAuthSessionAsync(connectUrl);
       }
     } catch (error) {
-      showToast(getErrorMessage(error, `Could not open ${toolName} connection`));
+      showToast(
+        getErrorMessage(error, `Could not open ${toolName} connection`),
+      );
     }
   };
 
   const handleConfirmSchedule = async (messageId: string) => {
     const message = messages.find((msg) => msg.id === messageId);
-    if (!threadId || message?.scheduleProposal?.status !== 'pending') return;
+    if (!threadId || message?.scheduleProposal?.status !== "pending") return;
 
     updateMessage(messageId, (msg) => ({
       ...msg,
-      scheduleAction: 'confirming',
+      scheduleAction: "confirming",
       scheduleError: undefined,
     }));
 
     try {
       const result = await confirmProposal(threadId, messageId);
       updateMessage(messageId, () => toUiMessage(result.message));
-      showToast('Schedule created');
+      showToast("Schedule created");
     } catch (error) {
-      console.error('Failed to create schedule:', error);
-      const errorMessage = getErrorMessage(error, 'Could not create schedule');
+      console.error("Failed to create schedule:", error);
+      const errorMessage = getErrorMessage(error, "Could not create schedule");
       updateMessage(messageId, (msg) => ({
         ...msg,
         scheduleAction: undefined,
@@ -538,11 +573,12 @@ export default function ChatScreen() {
   /** Dismisses a pending proposal. Resolves to whether it worked. */
   const dismissSchedule = async (messageId: string): Promise<boolean> => {
     const message = messages.find((msg) => msg.id === messageId);
-    if (!threadId || message?.scheduleProposal?.status !== 'pending') return false;
+    if (!threadId || message?.scheduleProposal?.status !== "pending")
+      return false;
 
     updateMessage(messageId, (msg) => ({
       ...msg,
-      scheduleAction: 'dismissing',
+      scheduleAction: "dismissing",
       scheduleError: undefined,
     }));
 
@@ -551,8 +587,11 @@ export default function ChatScreen() {
       updateMessage(messageId, () => toUiMessage(updated));
       return true;
     } catch (error) {
-      console.error('Failed to dismiss schedule:', error);
-      const errorMessage = getErrorMessage(error, 'Could not cancel the schedule');
+      console.error("Failed to dismiss schedule:", error);
+      const errorMessage = getErrorMessage(
+        error,
+        "Could not cancel the schedule",
+      );
       updateMessage(messageId, (msg) => ({
         ...msg,
         scheduleAction: undefined,
@@ -567,13 +606,52 @@ export default function ChatScreen() {
     void dismissSchedule(messageId);
   };
 
+  const handleSendJobDraft = async (messageId: string) => {
+    const message = messages.find((msg) => msg.id === messageId);
+    if (!threadId || !canSendJobDraft(message)) return;
+
+    updateMessage(messageId, (msg) => ({
+      ...msg,
+      jobDraftAction: "sending",
+      jobDraftError: undefined,
+    }));
+
+    try {
+      const updated = await sendJobApplicationDraft(threadId, messageId);
+      const ui = toUiMessage(updated);
+      updateMessage(messageId, (msg) => ({
+        ...ui,
+        jobDraftError:
+          ui.jobApplicationDraft?.status === "failed"
+            ? (ui.jobApplicationDraft.error_message ?? undefined)
+            : undefined,
+      }));
+      if (ui.jobApplicationDraft?.status === "sent") {
+        showToast("Email sent");
+      } else if (ui.jobApplicationDraft?.status === "failed") {
+        showToast(
+          ui.jobApplicationDraft.error_message || "Could not send the draft",
+        );
+      }
+    } catch (error) {
+      console.error("Failed to send job application draft:", error);
+      const errorMessage = getErrorMessage(error, "Could not send the draft");
+      updateMessage(messageId, (msg) => ({
+        ...msg,
+        jobDraftAction: undefined,
+        jobDraftError: errorMessage,
+      }));
+      showToast(errorMessage);
+    }
+  };
+
   const handleEditSchedule = async (messageId: string) => {
     const message = messages.find((msg) => msg.id === messageId);
     if (!message?.scheduleProposal) return;
 
     setInputText(message.scheduleProposal.original_prompt);
     if (await dismissSchedule(messageId)) {
-      showToast('Edit the request, then send it again.');
+      showToast("Edit the request, then send it again.");
     }
   };
 
@@ -590,13 +668,19 @@ export default function ChatScreen() {
           onLayout={onScrollViewLayout}
           style={styles.scrollArea}
           contentContainerStyle={styles.scrollContent}
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          keyboardDismissMode={
+            Platform.OS === "ios" ? "interactive" : "on-drag"
+          }
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={32}
-          onContentSizeChange={handleContentSizeChange}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          onContentSizeChange={handleContentSizeChange}
+        >
+          <TouchableWithoutFeedback
+            onPress={Keyboard.dismiss}
+            accessible={false}
+          >
             <View style={styles.scrollInner}>
               {/* Older messages, a page at a time */}
               {hasEarlier && visibleMessages.length > 0 ? (
@@ -605,11 +689,14 @@ export default function ChatScreen() {
                   onPress={handleLoadEarlier}
                   disabled={isLoadingEarlier}
                   activeOpacity={0.75}
-                  accessibilityRole="button">
+                  accessibilityRole="button"
+                >
                   {isLoadingEarlier ? (
                     <ActivityIndicator size="small" color={Colors.primary} />
                   ) : (
-                    <Text style={styles.loadEarlierText}>Load earlier messages</Text>
+                    <Text style={styles.loadEarlierText}>
+                      Load earlier messages
+                    </Text>
                   )}
                 </TouchableOpacity>
               ) : null}
@@ -623,7 +710,7 @@ export default function ChatScreen() {
 
               {/* Messages */}
               {visibleMessages.map((msg) => {
-                const isUser = msg.sender === 'user';
+                const isUser = msg.sender === "user";
                 return (
                   <TouchableOpacity
                     key={msg.id}
@@ -632,11 +719,21 @@ export default function ChatScreen() {
                     style={[
                       styles.messageRow,
                       isUser ? styles.userMessageRow : styles.agentMessageRow,
-                    ]}>
-                    <View style={[styles.bubble, isUser ? styles.userBubble : styles.agentBubble]}>
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.bubble,
+                        isUser ? styles.userBubble : styles.agentBubble,
+                      ]}
+                    >
                       {isUser ? (
                         msg.text ? (
-                          <Text style={[styles.bubbleText, styles.userBubbleText]}>{msg.text}</Text>
+                          <Text
+                            style={[styles.bubbleText, styles.userBubbleText]}
+                          >
+                            {msg.text}
+                          </Text>
                         ) : null
                       ) : (
                         <MarkdownText text={msg.text} />
@@ -644,18 +741,33 @@ export default function ChatScreen() {
 
                       {msg.attachments?.length ? (
                         <View
-                          style={[styles.attachmentList, !msg.text && styles.attachmentListOnly]}>
+                          style={[
+                            styles.attachmentList,
+                            !msg.text && styles.attachmentListOnly,
+                          ]}
+                        >
                           {msg.attachments.map((file, index) => (
-                            <View key={`${file.name}-${index}`} style={styles.attachmentNote}>
+                            <View
+                              key={`${file.name}-${index}`}
+                              style={styles.attachmentNote}
+                            >
                               <HugeiconsIcon
                                 icon={Attachment01Icon}
                                 size={14}
-                                color={isUser ? Colors.chatBubbleUserText : Colors.iconDark}
+                                color={
+                                  isUser
+                                    ? Colors.chatBubbleUserText
+                                    : Colors.iconDark
+                                }
                                 strokeWidth={2}
                               />
                               <Text
-                                style={[styles.attachmentNoteText, isUser && styles.userBubbleText]}
-                                numberOfLines={1}>
+                                style={[
+                                  styles.attachmentNoteText,
+                                  isUser && styles.userBubbleText,
+                                ]}
+                                numberOfLines={1}
+                              >
                                 {file.name}
                               </Text>
                             </View>
@@ -686,20 +798,27 @@ export default function ChatScreen() {
                             onPress={() =>
                               handleOpenConnectLink(
                                 msg.connectCta!.connect_url,
-                                msg.connectCta!.tool_name
+                                msg.connectCta!.tool_name,
                               )
                             }
-                            activeOpacity={0.8}>
-                            <Text style={styles.connectButtonText}>Connect</Text>
+                            activeOpacity={0.8}
+                          >
+                            <Text style={styles.connectButtonText}>
+                              Connect
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       ) : null}
 
                       {!isUser && msg.browserPreview ? (
-                        <ChatBrowserPreview browserPreview={msg.browserPreview} />
+                        <ChatBrowserPreview
+                          browserPreview={msg.browserPreview}
+                        />
                       ) : null}
 
-                      {!isUser && msg.reminder ? <ReminderCard note={msg.reminder} /> : null}
+                      {!isUser && msg.reminder ? (
+                        <ReminderCard note={msg.reminder} />
+                      ) : null}
 
                       {!isUser && msg.brief && msg.brief.follow_ups.length ? (
                         <BriefCard note={msg.brief} />
@@ -707,38 +826,51 @@ export default function ChatScreen() {
 
                       {!isUser && msg.scheduleProposal ? (
                         <View style={styles.scheduleCard}>
-                          <Text style={styles.scheduleTitle}>Schedule this task?</Text>
+                          <Text style={styles.scheduleTitle}>
+                            Schedule this task?
+                          </Text>
                           <View style={styles.scheduleDetailRow}>
                             <Text style={styles.scheduleLabel}>Task</Text>
-                            <Text style={styles.scheduleValue}>{msg.scheduleProposal.title}</Text>
+                            <Text style={styles.scheduleValue}>
+                              {msg.scheduleProposal.title}
+                            </Text>
                           </View>
                           <View style={styles.scheduleDetailRow}>
                             <Text style={styles.scheduleLabel}>When</Text>
                             <Text style={styles.scheduleValue}>
                               {`${formatScheduleRule(msg.scheduleProposal)} (${formatTimezone(
-                                msg.scheduleProposal.timezone
+                                msg.scheduleProposal.timezone,
                               )})`}
                             </Text>
                           </View>
                           <View style={styles.scheduleDetailRow}>
                             <Text style={styles.scheduleLabel}>Does</Text>
-                            <Text style={styles.scheduleValue} numberOfLines={4}>
+                            <Text
+                              style={styles.scheduleValue}
+                              numberOfLines={4}
+                            >
                               {msg.scheduleProposal.task}
                             </Text>
                           </View>
                           <View style={styles.scheduleDetailRow}>
                             <Text style={styles.scheduleLabel}>Delivery</Text>
                             <Text style={styles.scheduleValue}>
-                              {formatDeliveryLabel(msg.scheduleProposal.delivery)}
+                              {formatDeliveryLabel(
+                                msg.scheduleProposal.delivery,
+                              )}
                               {msg.scheduleProposal.delivery_target
                                 ? ` · ${msg.scheduleProposal.delivery_target}`
-                                : ''}
+                                : ""}
                             </Text>
                           </View>
-                          <Text style={styles.scheduleSummary}>{msg.scheduleProposal.summary}</Text>
+                          <Text style={styles.scheduleSummary}>
+                            {msg.scheduleProposal.summary}
+                          </Text>
 
                           {msg.scheduleError ? (
-                            <Text style={styles.scheduleError}>{msg.scheduleError}</Text>
+                            <Text style={styles.scheduleError}>
+                              {msg.scheduleError}
+                            </Text>
                           ) : null}
 
                           <View style={styles.scheduleActions}>
@@ -746,34 +878,138 @@ export default function ChatScreen() {
                               style={[
                                 styles.scheduleButton,
                                 styles.schedulePrimaryButton,
-                                !canActOnProposal(msg) && styles.scheduleButtonDisabled,
+                                !canActOnProposal(msg) &&
+                                  styles.scheduleButtonDisabled,
                               ]}
                               disabled={!canActOnProposal(msg)}
                               onPress={() => handleConfirmSchedule(msg.id)}
-                              activeOpacity={0.8}>
+                              activeOpacity={0.8}
+                            >
                               <Text style={styles.schedulePrimaryButtonText}>
-                                {msg.scheduleAction === 'confirming'
-                                  ? 'Saving...'
-                                  : msg.scheduleProposal.status === 'confirmed'
-                                    ? 'Confirmed'
-                                    : msg.scheduleProposal.status === 'dismissed'
-                                      ? 'Cancelled'
-                                      : 'Confirm'}
+                                {msg.scheduleAction === "confirming"
+                                  ? "Saving..."
+                                  : msg.scheduleProposal.status === "confirmed"
+                                    ? "Confirmed"
+                                    : msg.scheduleProposal.status ===
+                                        "dismissed"
+                                      ? "Cancelled"
+                                      : "Confirm"}
                               </Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={styles.scheduleButton}
                               disabled={!canActOnProposal(msg)}
                               onPress={() => handleEditSchedule(msg.id)}
-                              activeOpacity={0.8}>
-                              <Text style={styles.scheduleButtonText}>Edit</Text>
+                              activeOpacity={0.8}
+                            >
+                              <Text style={styles.scheduleButtonText}>
+                                Edit
+                              </Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               style={styles.scheduleButton}
                               disabled={!canActOnProposal(msg)}
                               onPress={() => handleCancelSchedule(msg.id)}
-                              activeOpacity={0.8}>
-                              <Text style={styles.scheduleButtonText}>Cancel</Text>
+                              activeOpacity={0.8}
+                            >
+                              <Text style={styles.scheduleButtonText}>
+                                Cancel
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : null}
+
+                      {!isUser && msg.jobApplicationDraft ? (
+                        <View style={styles.scheduleCard}>
+                          <Text style={styles.scheduleTitle}>
+                            Job Application Draft
+                          </Text>
+                          <View style={styles.scheduleDetailRow}>
+                            <Text style={styles.scheduleLabel}>To</Text>
+                            <Text
+                              style={styles.scheduleValue}
+                              numberOfLines={1}
+                            >
+                              {msg.jobApplicationDraft.recipient_email}
+                            </Text>
+                          </View>
+                          <View style={styles.scheduleDetailRow}>
+                            <Text style={styles.scheduleLabel}>Subject</Text>
+                            <Text
+                              style={styles.scheduleValue}
+                              numberOfLines={2}
+                            >
+                              {msg.jobApplicationDraft.subject}
+                            </Text>
+                          </View>
+                          {msg.jobApplicationDraft.company ? (
+                            <View style={styles.scheduleDetailRow}>
+                              <Text style={styles.scheduleLabel}>Company</Text>
+                              <Text
+                                style={styles.scheduleValue}
+                                numberOfLines={1}
+                              >
+                                {msg.jobApplicationDraft.company}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {msg.jobApplicationDraft.role_title ? (
+                            <View style={styles.scheduleDetailRow}>
+                              <Text style={styles.scheduleLabel}>Role</Text>
+                              <Text
+                                style={styles.scheduleValue}
+                                numberOfLines={1}
+                              >
+                                {msg.jobApplicationDraft.role_title}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <View style={styles.scheduleDetailRow}>
+                            <Text style={styles.scheduleLabel}>Body</Text>
+                            <Text
+                              style={styles.scheduleValue}
+                              numberOfLines={6}
+                            >
+                              {msg.jobApplicationDraft.body}
+                            </Text>
+                          </View>
+                          <Text
+                            style={styles.scheduleSummary}
+                            numberOfLines={1}
+                          >
+                            From post:{" "}
+                            {msg.jobApplicationDraft.linkedin_post_url}
+                          </Text>
+
+                          {msg.jobDraftError ? (
+                            <Text style={styles.scheduleError}>
+                              {msg.jobDraftError}
+                            </Text>
+                          ) : null}
+
+                          <View style={styles.scheduleActions}>
+                            <TouchableOpacity
+                              style={[
+                                styles.scheduleButton,
+                                styles.schedulePrimaryButton,
+                                !canSendJobDraft(msg) &&
+                                  styles.scheduleButtonDisabled,
+                              ]}
+                              disabled={!canSendJobDraft(msg)}
+                              onPress={() => handleSendJobDraft(msg.id)}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={styles.schedulePrimaryButtonText}>
+                                {msg.jobDraftAction === "sending"
+                                  ? "Sending..."
+                                  : msg.jobApplicationDraft.status === "sent"
+                                    ? "Sent"
+                                    : msg.jobApplicationDraft.status ===
+                                        "failed"
+                                      ? "Send Again"
+                                      : "Send"}
+                              </Text>
                             </TouchableOpacity>
                           </View>
                         </View>
@@ -797,7 +1033,10 @@ export default function ChatScreen() {
 
         {/* Floating Input Pill, carried on top of the keyboard */}
         <Animated.View style={[styles.inputWrapper, keyboardInputStyle]}>
-          <AttachmentChips attachments={attachments} onRemove={handleRemoveAttachment} />
+          <AttachmentChips
+            attachments={attachments}
+            onRemove={handleRemoveAttachment}
+          />
 
           <View style={styles.inputBar}>
             {/* Plus Attach Button */}
@@ -807,7 +1046,8 @@ export default function ChatScreen() {
               disabled={isPicking}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel="Attach images or PDFs">
+              accessibilityLabel="Attach images or PDFs"
+            >
               {isPicking ? (
                 <ActivityIndicator size="small" color={Colors.iconDark} />
               ) : (
@@ -827,7 +1067,7 @@ export default function ChatScreen() {
               onChangeText={setInputText}
               placeholder={
                 voice.isListening
-                  ? 'Listening...'
+                  ? "Listening..."
                   : `Ask ${profile.name} to read emails, send Slack msgs, or schedule meetings...`
               }
               placeholderTextColor={Colors.iconMuted}
@@ -842,17 +1082,29 @@ export default function ChatScreen() {
                 onPress={handleSend}
                 activeOpacity={0.8}
                 accessibilityRole="button"
-                accessibilityLabel="Send message">
-                <HugeiconsIcon icon={SentIcon} size={18} color={Colors.white} strokeWidth={2.4} />
+                accessibilityLabel="Send message"
+              >
+                <HugeiconsIcon
+                  icon={SentIcon}
+                  size={18}
+                  color={Colors.white}
+                  strokeWidth={2.4}
+                />
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
-                style={[styles.circleBtn, voice.isListening && styles.micListeningBtn]}
+                style={[
+                  styles.circleBtn,
+                  voice.isListening && styles.micListeningBtn,
+                ]}
                 onPress={handleMicPress}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel={voice.isListening ? 'Stop voice input' : 'Voice input'}
-                accessibilityState={{ selected: voice.isListening }}>
+                accessibilityLabel={
+                  voice.isListening ? "Stop voice input" : "Voice input"
+                }
+                accessibilityState={{ selected: voice.isListening }}
+              >
                 <HugeiconsIcon
                   icon={Mic01Icon}
                   size={20}
@@ -869,7 +1121,10 @@ export default function ChatScreen() {
 }
 
 /** The thread in the route (falling back to the main thread when it is gone), or main. */
-async function resolveThread(routeThreadId: string | null, signal: AbortSignal): Promise<Thread> {
+async function resolveThread(
+  routeThreadId: string | null,
+  signal: AbortSignal,
+): Promise<Thread> {
   if (routeThreadId) {
     try {
       return await getThread(routeThreadId, signal);
@@ -877,7 +1132,7 @@ async function resolveThread(routeThreadId: string | null, signal: AbortSignal):
       if (!(error instanceof ApiError && error.status === 404)) {
         throw error;
       }
-      showToast('That chat no longer exists. Opening the main chat.');
+      showToast("That chat no longer exists. Opening the main chat.");
     }
   }
   return ensureMainThread(signal);
@@ -894,7 +1149,10 @@ function isStoredMessage(msg: ChatMessage) {
  * dropped, now that the stored reply is here). Nothing new: the same array, so the list
  * does not re-render or scroll.
  */
-function withNewerMessages(shown: ChatMessage[], latest: ChatMessage[]): ChatMessage[] {
+function withNewerMessages(
+  shown: ChatMessage[],
+  latest: ChatMessage[],
+): ChatMessage[] {
   const shownIds = new Set(shown.map((msg) => msg.id));
   const added = latest.filter((msg) => !shownIds.has(msg.id));
   if (added.length === 0) return shown;
@@ -903,25 +1161,39 @@ function withNewerMessages(shown: ChatMessage[], latest: ChatMessage[]): ChatMes
 
 function formatDeliveryLabel(delivery?: string | null) {
   return (
-    (delivery || 'chat')
+    (delivery || "chat")
       .split(/[_-]+/)
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ') || 'Chat'
+      .join(" ") || "Chat"
   );
 }
 
 /** The schedule card's buttons work only on a stored, pending proposal with no request in flight. */
 function canActOnProposal(msg: ChatMessage) {
-  return msg.scheduleProposal?.status === 'pending' && !msg.scheduleAction && !msg.pending;
+  return (
+    msg.scheduleProposal?.status === "pending" &&
+    !msg.scheduleAction &&
+    !msg.pending
+  );
+}
+
+function canSendJobDraft(msg?: ChatMessage) {
+  if (!msg?.jobApplicationDraft) return false;
+  return (
+    (msg.jobApplicationDraft.status === "pending" ||
+      msg.jobApplicationDraft.status === "failed") &&
+    msg.jobDraftAction !== "sending" &&
+    !msg.pending
+  );
 }
 
 /** IANA timezone of the device, sent with each message for times and schedules. */
 function getDeviceTimezone() {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   } catch {
-    return 'UTC';
+    return "UTC";
   }
 }
 
@@ -932,7 +1204,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    justifyContent: 'space-between',
+    justifyContent: "space-between",
   },
   scrollArea: {
     flex: 1,
@@ -947,7 +1219,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   dateBadgeContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginVertical: 14,
   },
   dateBadge: {
@@ -958,22 +1230,22 @@ const styles = StyleSheet.create({
   },
   dateBadgeText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Colors.dateBadgeText,
   },
   messageRow: {
     marginBottom: 12,
-    width: '100%',
-    flexDirection: 'row',
+    width: "100%",
+    flexDirection: "row",
   },
   userMessageRow: {
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
   },
   agentMessageRow: {
-    justifyContent: 'flex-start',
+    justifyContent: "flex-start",
   },
   bubble: {
-    maxWidth: '85%',
+    maxWidth: "85%",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 20,
@@ -993,12 +1265,12 @@ const styles = StyleSheet.create({
   },
   userBubbleText: {
     color: Colors.chatBubbleUserText,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   loadEarlierBtn: {
-    alignSelf: 'center',
+    alignSelf: "center",
     minHeight: 32,
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingHorizontal: 14,
     paddingVertical: 6,
     marginTop: 6,
@@ -1009,7 +1281,7 @@ const styles = StyleSheet.create({
   },
   loadEarlierText: {
     fontSize: 12.5,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.primary,
   },
   attachmentList: {
@@ -1020,8 +1292,8 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
   attachmentNote: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
   attachmentNoteText: {
@@ -1030,9 +1302,9 @@ const styles = StyleSheet.create({
     color: Colors.iconDark,
   },
   typingText: {
-    fontStyle: 'italic',
+    fontStyle: "italic",
     color: Colors.iconMuted,
-    textAlign: 'left',
+    textAlign: "left",
     marginTop: 8,
   },
   micListeningBtn: {
@@ -1040,13 +1312,13 @@ const styles = StyleSheet.create({
   },
   inputWrapper: {
     paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'ios' ? 12 : 10,
+    paddingBottom: Platform.OS === "ios" ? 12 : 10,
     paddingTop: 6,
     backgroundColor: Colors.white,
   },
   inputBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: Colors.inputBarBg,
     borderRadius: 26,
     paddingHorizontal: 8,
@@ -1058,8 +1330,8 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   sendBtn: {
     backgroundColor: Colors.iconDark,
@@ -1069,7 +1341,7 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     color: Colors.iconDark,
     paddingHorizontal: 10,
-    paddingVertical: Platform.OS === 'ios' ? 8 : 4,
+    paddingVertical: Platform.OS === "ios" ? 8 : 4,
   },
   connectCard: {
     marginTop: 12,
@@ -1078,15 +1350,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.white,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   connectIcon: {
     width: 36,
     height: 36,
     borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: Colors.primarySubtle,
     marginRight: 10,
   },
@@ -1096,7 +1368,7 @@ const styles = StyleSheet.create({
   },
   connectTitle: {
     fontSize: 13.5,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.iconDark,
   },
   connectSubtitle: {
@@ -1113,7 +1385,7 @@ const styles = StyleSheet.create({
   connectButtonText: {
     color: Colors.white,
     fontSize: 12.5,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   scheduleCard: {
     marginTop: 12,
@@ -1125,25 +1397,25 @@ const styles = StyleSheet.create({
   },
   scheduleTitle: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.iconDark,
     marginBottom: 10,
   },
   scheduleDetailRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     marginBottom: 8,
   },
   scheduleLabel: {
     width: 64,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.textSecondary,
   },
   scheduleValue: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
     color: Colors.iconDark,
   },
   scheduleSummary: {
@@ -1159,8 +1431,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   scheduleActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     marginTop: 12,
   },
@@ -1168,8 +1440,8 @@ const styles = StyleSheet.create({
     minHeight: 34,
     borderRadius: 10,
     paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.white,
@@ -1183,12 +1455,12 @@ const styles = StyleSheet.create({
   },
   scheduleButtonText: {
     fontSize: 12.5,
-    fontWeight: '700',
+    fontWeight: "700",
     color: Colors.iconDark,
   },
   schedulePrimaryButtonText: {
     fontSize: 12.5,
-    fontWeight: '800',
+    fontWeight: "800",
     color: Colors.white,
   },
 });

@@ -17,20 +17,31 @@
  *   the app works and simply cannot receive push. See docs/DEPLOYMENT.md.
  */
 
-import type { ConfigContext, ExpoConfig } from 'expo/config';
+import type { ConfigContext, ExpoConfig } from "expo/config";
 
-type Variant = 'development' | 'staging' | 'production';
+type Variant = "development" | "staging" | "production";
 
-const VARIANTS: Record<Variant, { name: string; id: string; scheme: string }> = {
-  development: { name: 'Zoop Dev', id: 'com.museai.app.dev', scheme: 'memory-dev' },
-  staging: { name: 'Zoop Staging', id: 'com.museai.app.staging', scheme: 'memory-staging' },
-  production: { name: 'Zoop', id: 'com.museai.app', scheme: 'memory' },
-};
+const VARIANTS: Record<Variant, { name: string; id: string; scheme: string }> =
+  {
+    development: {
+      name: "Zoop Dev",
+      id: "com.museai.app.dev",
+      scheme: "memory-dev",
+    },
+    staging: {
+      name: "Zoop Staging",
+      id: "com.museai.app.staging",
+      scheme: "memory-staging",
+    },
+    production: { name: "Zoop", id: "com.museai.app", scheme: "memory" },
+  };
 
 function variantFromEnv(): Variant {
-  const value = process.env.APP_VARIANT ?? 'production';
+  const value = process.env.APP_VARIANT ?? "production";
   if (!(value in VARIANTS)) {
-    throw new Error(`APP_VARIANT must be one of ${Object.keys(VARIANTS).join(', ')}.`);
+    throw new Error(
+      `APP_VARIANT must be one of ${Object.keys(VARIANTS).join(", ")}.`,
+    );
   }
   return value as Variant;
 }
@@ -38,20 +49,23 @@ function variantFromEnv(): Variant {
 export default ({ config }: ConfigContext): ExpoConfig => {
   const variant = VARIANTS[variantFromEnv()];
   const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "";
   const profile = process.env.EAS_BUILD_PROFILE;
   // A store build must reach the hosted backend over https; without this it would build
   // fine and then fail on every request.
-  if ((profile === 'production' || profile === 'store') && !apiUrl.startsWith('https://')) {
+  if (
+    (profile === "production" || profile === "store") &&
+    !apiUrl.startsWith("https://")
+  ) {
     throw new Error(
-      'Production builds need EXPO_PUBLIC_API_URL set to the https address of the hosted ' +
-        'backend (in eas.json under the profile env, or as an EAS environment variable).',
+      "Production builds need EXPO_PUBLIC_API_URL set to the https address of the hosted " +
+        "backend (in eas.json under the profile env, or as an EAS environment variable).",
     );
   }
   return {
     ...config,
     name: variant.name,
-    slug: config.slug ?? 'zoop',
+    slug: config.slug ?? "zoop",
     scheme: variant.scheme,
     ios: { ...config.ios, bundleIdentifier: variant.id },
     android: {
@@ -62,8 +76,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     plugins: [
       ...(config.plugins ?? []),
       [
-        'expo-build-properties',
-        { android: { usesCleartextTraffic: apiUrl.startsWith('http://') } },
+        "expo-build-properties",
+        { android: { usesCleartextTraffic: apiUrl.startsWith("http://") } },
       ],
     ],
   };

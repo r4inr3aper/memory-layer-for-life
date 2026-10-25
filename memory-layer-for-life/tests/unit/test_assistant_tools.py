@@ -267,14 +267,16 @@ async def test_a_sign_in_wall_is_reported_as_login_required() -> None:
     assert context.browser_preview.status == "login_required"
 
 
-async def test_a_slow_browser_task_returns_while_still_running() -> None:
+async def test_a_slow_browser_task_times_out_and_is_stopped() -> None:
     browser = FakeBrowser(browser_run())
     tool, fake_time = browse_tool(browser, timeout=10)
     context, _ = turn()
 
     output = await tool.run({"task": "Book a table"}, context)
 
-    assert json.loads(output.content)["status"] == "still_running"
+    assert output.is_error
+    assert json.loads(output.content)["status"] == "timed_out"
+    assert browser.stopped_runs == ["run_1"]
     assert fake_time.now >= 10
 
 
@@ -343,14 +345,14 @@ async def test_run_app_tool_executes_in_the_app_s_session_once_per_turn() -> Non
 
     for _ in range(2):
         output = await run.run(
-            {"app": "slack", "tool_slug": "SLACK_SEND_MESSAGE", "arguments": {"text": "hi"}},
+            {"app": "slack", "tool_slug": "SLACK_SEARCH_MESSAGES", "arguments": {"query": "hi"}},
             context,
         )
         assert not output.is_error
 
     assert len(composio.sessions) == 1
-    assert [slug for _, slug, _ in composio.executions] == ["SLACK_SEND_MESSAGE"] * 2
-    assert context.executed == [("slack", "SLACK_SEND_MESSAGE")] * 2
+    assert [slug for _, slug, _ in composio.executions] == ["SLACK_SEARCH_MESSAGES"] * 2
+    assert context.executed == [("slack", "SLACK_SEARCH_MESSAGES")] * 2
 
 
 async def test_a_tool_of_another_app_is_refused() -> None:
@@ -388,6 +390,59 @@ async def test_a_scheduled_run_changes_data_only_in_its_delivery_app() -> None:
         "GMAIL_FETCH_EMAILS",
         "SLACK_SEND_MESSAGE",
     ]
+
+
+async def test_chat_write_actions_require_explicit_confirmation() -> None:
+    composio = FakeComposio()
+    _, run = app_tools(composio)
+    context, _ = turn(user_confirmed_action=False)
+    composio.add_account(context.principal.id, "slack")
+
+    blocked = await run.run(
+        {"app": "slack", "tool_slug": "SLACK_SEND_MESSAGE", "arguments": {}}, context
+    )
+
+    assert blocked.is_error
+    assert "explicit confirmation" in blocked.content
+
+
+async def test_confirmed_flag_without_user_approval_is_refused() -> None:
+    composio = FakeComposio()
+    _, run = app_tools(composio)
+    context, _ = turn(user_confirmed_action=False)
+    composio.add_account(context.principal.id, "slack")
+
+    blocked = await run.run(
+        {
+            "app": "slack",
+            "tool_slug": "SLACK_SEND_MESSAGE",
+            "arguments": {"text": "hello"},
+            "confirmed": True,
+        },
+        context,
+    )
+
+    assert blocked.is_error
+
+
+async def test_chat_write_actions_run_after_explicit_confirmation() -> None:
+    composio = FakeComposio()
+    _, run = app_tools(composio)
+    context, _ = turn(user_confirmed_action=True)
+    composio.add_account(context.principal.id, "slack")
+
+    allowed = await run.run(
+        {
+            "app": "slack",
+            "tool_slug": "SLACK_SEND_MESSAGE",
+            "arguments": {"text": "hello"},
+            "confirmed": True,
+        },
+        context,
+    )
+
+    assert not allowed.is_error
+    assert [slug for _, slug, _ in composio.executions] == ["SLACK_SEND_MESSAGE"]
 
 
 @pytest.mark.parametrize(

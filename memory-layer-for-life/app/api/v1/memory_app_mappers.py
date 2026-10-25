@@ -3,6 +3,7 @@
 from app.api.v1.mappers import to_memory_response
 from app.schemas.memory import MemoryEntityResponse
 from app.schemas.my_memories import (
+    FailedRunResponse,
     HeldBackMessageResponse,
     HeldBackResponse,
     MemoryEventResponse,
@@ -67,6 +68,19 @@ def to_review_inbox_response(inbox: ReviewInbox) -> ReviewInboxResponse:
             for held in inbox.held_back
         ],
         held_back_count=inbox.held_back_count,
+        failed=[
+            FailedRunResponse(
+                run_id=failed.run_id,
+                failed_at=failed.failed_at,
+                error_code=failed.error_code,
+                error_message=failed.error_message,
+                messages=[
+                    HeldBackMessageResponse.model_validate(message) for message in failed.messages
+                ],
+            )
+            for failed in inbox.failed
+        ],
+        failed_count=inbox.failed_count,
     )
 
 

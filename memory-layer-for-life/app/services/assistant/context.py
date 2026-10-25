@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 
 from app.domain.principal import Principal
 from app.models.chat_message import ChatMessage
-from app.schemas.message_metadata import BrowserPreview, ConnectLink, ScheduleProposal
+from app.schemas.message_metadata import (
+    BrowserPreview,
+    ConnectLink,
+    JobApplicationDraft,
+    ScheduleProposal,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,11 +83,14 @@ class TurnContext:
     emit: EventSink = discard_event
     allow_proposals: bool = True
     write_policy: WritePolicy = WritePolicy.CONFIRM_IN_CHAT
+    # Whether the latest user message explicitly approved a pending write action.
+    user_confirmed_action: bool = False
     # The app a scheduled run may change data in. None means no app.
     delivery_app: str | None = None
     # Outcomes the tools leave for the caller.
     browser_preview: BrowserPreview | None = None
     connect_link: ConnectLink | None = None
+    job_application_draft: JobApplicationDraft | None = None
     proposal: ScheduleProposal | None = None
     # Successful app tool calls, as (app, tool slug).
     executed: list[tuple[str, str]] = field(default_factory=list)

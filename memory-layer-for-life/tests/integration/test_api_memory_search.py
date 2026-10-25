@@ -271,7 +271,7 @@ async def test_cooper_looks_up_the_user_s_memories_and_reads_their_own_words(
     [result] = results.results
     assert result.is_error is False
     assert SISTER in result.content
-    assert f'The user wrote: "{SISTER_MESSAGE}"' in result.content
+    assert f'Evidence: "{SISTER_MESSAGE}"' in result.content
 
 
 async def test_cooper_finds_nothing_in_another_user_s_memories(

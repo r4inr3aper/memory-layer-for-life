@@ -10,7 +10,7 @@ from app.domain.enums import (
     ProcessingStatus,
     Sensitivity,
 )
-from app.domain.errors import TransientExtractionError
+from app.domain.errors import PermanentExtractionError, TransientExtractionError
 from app.domain.retrieval import RetrievalFilters, RetrievalQuery
 from app.integrations.llm_calls import LlmCallContext
 from app.models.memory_embedding import MemoryEmbedding
@@ -516,6 +516,49 @@ async def test_a_held_back_message_can_be_dismissed_by_its_owner_only(
 
     assert theirs.status_code == 404
     assert (await get_json(assistant_api, f"{MEMORIES}/review", headers))["held_back"] == []
+
+
+async def test_failed_runs_are_visible_in_review_and_can_be_retried_by_their_owner_only(
+    assistant_api: AssistantHarness,
+) -> None:
+    principal, headers = await sign_up(assistant_api)
+    assistant_api.extractor.use_script(PermanentExtractionError("The model declined this unit."))
+    [unit] = await assistant_api.container.ingestion_service.ingest(
+        [
+            [
+                RawMessageCreate(
+                    source=MessageSource.APP_CHAT,
+                    content="can you find flights to goa tomorrow",
+                    source_message_id=str(uuid.uuid4()),
+                    source_created_at=assistant_api.clock(),
+                )
+            ]
+        ],
+        owner_id=principal.id,
+    )
+    await assistant_api.container.pipeline_runner.process_runs([unit.run.id])
+    _, stranger = await sign_up(assistant_api, "Eve")
+
+    inbox = await get_json(assistant_api, f"{MEMORIES}/review", headers)
+
+    assert inbox["failed_count"] == 1
+    [failed] = inbox["failed"]
+    assert failed["run_id"] == str(unit.run.id)
+    assert failed["error_code"] == "EXTRACTION_PERMANENT"
+    assert failed["messages"][0]["content"] == "can you find flights to goa tomorrow"
+
+    theirs = await assistant_api.client.post(
+        f"{MEMORIES}/failed/{unit.run.id}/retry", headers=stranger
+    )
+    mine = await assistant_api.client.post(f"{MEMORIES}/failed/{unit.run.id}/retry", headers=headers)
+
+    assert theirs.status_code == 404
+    assert mine.status_code == 204
+    async with assistant_api.container.session_factory() as session:
+        run = await session.get(ProcessingRun, unit.run.id)
+    assert run is not None
+    assert run.status == ProcessingStatus.QUEUED.value
+    assert run.error_code is None
 
 
 # --- People ----------------------------------------------------------------------------

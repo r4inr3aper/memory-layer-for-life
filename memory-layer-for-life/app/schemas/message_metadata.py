@@ -5,7 +5,7 @@ the app. It is still a contract: the server writes this model and the API return
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -41,6 +41,27 @@ class ConnectLink(MetadataModel):
     toolkit: str
     tool_name: str
     connect_url: str
+
+
+class JobApplicationDraft(MetadataModel):
+    """A review card for a job application email the assistant prepared.
+
+    The card lets the user send with one tap. The backend executes the stored
+    app action only after that explicit button press.
+    """
+
+    linkedin_post_url: str
+    recipient_email: str
+    subject: str
+    body: str
+    company: str | None = None
+    role_title: str | None = None
+    delivery_app: str = Field(description="The connected app that sends it, usually gmail.")
+    send_tool_slug: str = Field(description="Composio tool slug used to send the email.")
+    send_arguments: dict[str, object] = Field(default_factory=dict)
+    status: str = Field(description="pending, sending, sent, failed, or dismissed.")
+    error_message: str | None = None
+    sent_at: datetime | None = None
 
 
 class ScheduleProposal(MetadataModel):
@@ -114,6 +135,7 @@ class BriefNote(MetadataModel):
 class MessageMetadata(MetadataModel):
     browser_preview: BrowserPreview | None = None
     connect_link: ConnectLink | None = None
+    job_application_draft: JobApplicationDraft | None = None
     schedule_proposal: ScheduleProposal | None = None
     scheduled_run: ScheduledRunNote | None = None
     attachments: list[AttachmentNote] | None = None

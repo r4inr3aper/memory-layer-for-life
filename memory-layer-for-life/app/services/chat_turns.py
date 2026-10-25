@@ -13,6 +13,7 @@ a lease left behind by a process that died expires on its own.
 """
 
 import asyncio
+import re
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
@@ -70,6 +71,21 @@ UNEXPECTED_ERROR_CODE: Final = "UNEXPECTED_ERROR"
 _UNEXPECTED_ERROR_MESSAGE: Final = "Cooper ran into an unexpected problem. Try again."
 _PROPOSAL_FALLBACK: Final = "Schedule this task?"
 _EMPTY_REPLY_FALLBACK: Final = "Done."
+_APPROVAL_PREFIXES: Final = (
+    "yes",
+    "yep",
+    "yeah",
+    "ok",
+    "okay",
+    "confirm",
+    "approved",
+    "proceed",
+    "go ahead",
+    "do it",
+    "send it",
+    "create it",
+)
+_APPROVAL_BLOCKERS: Final = ("?", " not ", " don't", " dont", " stop", " cancel")
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,6 +266,7 @@ class ChatTurnService:
                 timezone_name=timezone_name,
                 original_prompt=current.text,
                 emit=emit,
+                user_confirmed_action=_explicit_action_approval(current.text),
             )
             result = await agent.run(
                 instructions=chat_instructions(self._toolbox.capabilities),
@@ -272,6 +289,7 @@ class ChatTurnService:
             metadata = MessageMetadata(
                 browser_preview=turn.browser_preview,
                 connect_link=turn.connect_link,
+                job_application_draft=turn.job_application_draft,
                 schedule_proposal=turn.proposal,
             )
             message = await self._store_reply(principal, thread_id, reply, metadata)
@@ -379,3 +397,14 @@ def _readable_size(size: int) -> str:
 
 def _app_names(slugs: Sequence[str]) -> list[str]:
     return sorted(spec.name for slug in slugs if (spec := find_tool(slug)) is not None)
+
+
+def _explicit_action_approval(text: str) -> bool:
+    """True when a short user message clearly approves executing a pending action."""
+    cleaned = re.sub(r"\s+", " ", text.strip().lower())
+    if not cleaned or len(cleaned) > 80:
+        return False
+    framed = f" {cleaned} "
+    if any(blocker in framed for blocker in _APPROVAL_BLOCKERS):
+        return False
+    return any(cleaned.startswith(prefix) for prefix in _APPROVAL_PREFIXES)

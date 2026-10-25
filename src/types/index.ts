@@ -6,14 +6,15 @@
  */
 
 import type {
-  BriefNote,
-  BrowserPreview,
-  ChatMessage as ApiChatMessage,
-  ConnectLink,
-  ReminderNote,
-  ScheduleProposal,
-  ScheduledRunNote,
-} from '@/lib/api/types';
+    ChatMessage as ApiChatMessage,
+    BriefNote,
+    BrowserPreview,
+    ConnectLink,
+    JobApplicationDraft,
+    ReminderNote,
+    ScheduleProposal,
+    ScheduledRunNote,
+} from "@/lib/api/types";
 
 /** Live cloud browser card shown under an agent message. */
 export type ChatBrowserPreviewData = BrowserPreview;
@@ -23,6 +24,7 @@ export type ChatConnectCta = ConnectLink;
 
 /** Schedule proposal card shown under an agent message. */
 export type ChatScheduleProposal = ScheduleProposal;
+export type ChatJobApplicationDraft = JobApplicationDraft;
 
 /** A file sent with a user message, listed in its bubble by name. */
 export interface ChatAttachment {
@@ -39,7 +41,7 @@ export interface ChatMessage {
   /** Unique identifier for the message (a local id until the server has stored it) */
   id: string;
   /** Origin of the message: 'user' for current user, 'agent' for Cooper AI, or 'system' */
-  sender: 'user' | 'agent' | 'system';
+  sender: "user" | "agent" | "system";
   /** Plaintext or markdown formatted message content */
   text: string;
   /** Formatted timestamp display string (e.g. "3:35 PM") */
@@ -48,6 +50,7 @@ export interface ChatMessage {
   browserPreview?: ChatBrowserPreviewData;
   connectCta?: ChatConnectCta;
   scheduleProposal?: ChatScheduleProposal;
+  jobApplicationDraft?: ChatJobApplicationDraft;
   /** Set on a message that delivered the result of a scheduled run */
   scheduledRun?: ScheduledRunNote;
   /** Set on a reminder the user set: the card offers Done and Snooze */
@@ -57,9 +60,13 @@ export interface ChatMessage {
   /** Files sent with a user message */
   attachments?: ChatAttachment[];
   /** Schedule proposal request in flight (transient UI state, never stored) */
-  scheduleAction?: 'confirming' | 'dismissing';
+  scheduleAction?: "confirming" | "dismissing";
   /** Last schedule proposal request failure (transient UI state, never stored) */
   scheduleError?: string;
+  /** Job-draft send request in flight (transient UI state, never stored) */
+  jobDraftAction?: "sending";
+  /** Last job-draft send failure (transient UI state, never stored) */
+  jobDraftError?: string;
 
   /** Optimistic bubble the server has not stored yet */
   pending?: boolean;
@@ -74,11 +81,12 @@ export function toUiMessage(message: ApiChatMessage): ChatMessage {
   const metadata = message.metadata ?? {};
   return {
     id: message.id,
-    sender: message.role === 'user' ? 'user' : 'agent',
+    sender: message.role === "user" ? "user" : "agent",
     text: message.content,
     timestamp: formatMessageTime(message.created_at),
     browserPreview: metadata.browser_preview ?? undefined,
     connectCta: metadata.connect_link ?? undefined,
+    jobApplicationDraft: metadata.job_application_draft ?? undefined,
     scheduleProposal: metadata.schedule_proposal ?? undefined,
     scheduledRun: metadata.scheduled_run ?? undefined,
     reminder: metadata.reminder ?? undefined,
@@ -97,8 +105,8 @@ export function toUiMessage(message: ApiChatMessage): ChatMessage {
  * Chat bubble timestamp, e.g. "03:35 PM".
  */
 export function formatMessageTime(value: string | Date = new Date()): string {
-  const date = typeof value === 'string' ? new Date(value) : value;
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const date = typeof value === "string" ? new Date(value) : value;
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 /**
@@ -132,7 +140,7 @@ export interface IdeaItem {
 /**
  * Status of scheduled goals or routines.
  */
-export type TaskStatus = 'active' | 'paused' | 'done';
+export type TaskStatus = "active" | "paused" | "done";
 
 /**
  * Scheduled goal or recurring autonomous workflow tracked in Tasks tab.
@@ -185,7 +193,7 @@ export interface AgentProfile {
 /**
  * Valid navigation tab identifiers
  */
-export type TabKey = 'chat' | 'feed' | 'ideas' | 'tasks' | 'settings';
+export type TabKey = "chat" | "feed" | "ideas" | "tasks" | "settings";
 
 /**
  * Tab dock destination item specification
@@ -197,4 +205,5 @@ export interface TabItem {
   icon: any;
 }
 
-export * from './tools';
+export * from "./tools";
+

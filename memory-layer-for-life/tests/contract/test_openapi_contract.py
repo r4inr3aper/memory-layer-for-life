@@ -57,6 +57,7 @@ APP_OPERATIONS = {
     ("post", f"{PREFIX}/threads/{{thread_id}}/messages"),
     ("post", f"{PREFIX}/threads/{{thread_id}}/messages/{{message_id}}/proposal/confirm"),
     ("post", f"{PREFIX}/threads/{{thread_id}}/messages/{{message_id}}/proposal/dismiss"),
+    ("post", f"{PREFIX}/threads/{{thread_id}}/messages/{{message_id}}/job-application/send"),
     ("get", f"{PREFIX}/schedules"),
     ("get", f"{PREFIX}/schedules/{{schedule_id}}"),
     ("patch", f"{PREFIX}/schedules/{{schedule_id}}"),

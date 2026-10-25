@@ -13,13 +13,13 @@ The app has no server code of its own. Everything that needs a secret, a databas
 
 What moved where:
 
-| Before | Now |
-|---|---|
-| Expo API routes (`src/app/api/*`) running OpenAI Agents, Composio, Browserbase | `POST /api/v1/threads/{id}/messages` on the backend, Cooper on Claude |
-| Screens querying Supabase tables (`chat_threads`, `chat_messages`, `tools`, `user_tool_connections`, `scheduled_agent_tasks`) | Backend endpoints over the backend's own database (Neon); the app never reads a database |
-| Supabase Edge Function `agent-run` + `pg_cron` | Backend scheduler loop (or `python -m scripts.run_schedules`) |
-| Client saved both sides of the chat | Server stores the user message and the reply; the reply is saved even if the app disconnects |
-| Schedule intent parsed by a separate OpenAI call per message | Cooper calls a `propose_schedule` tool; nothing is created until the user confirms the card |
+| Before                                                                                                                        | Now                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Expo API routes (`src/app/api/*`) running OpenAI Agents, Composio, Browserbase                                                | `POST /api/v1/threads/{id}/messages` on the backend, Cooper on Claude                        |
+| Screens querying Supabase tables (`chat_threads`, `chat_messages`, `tools`, `user_tool_connections`, `scheduled_agent_tasks`) | Backend endpoints over the backend's own database (Neon); the app never reads a database     |
+| Supabase Edge Function `agent-run` + `pg_cron`                                                                                | Backend scheduler loop (or `python -m scripts.run_schedules`)                                |
+| Client saved both sides of the chat                                                                                           | Server stores the user message and the reply; the reply is saved even if the app disconnects |
+| Schedule intent parsed by a separate OpenAI call per message                                                                  | Cooper calls a `propose_schedule` tool; nothing is created until the user confirms the card  |
 
 ## Environment
 
@@ -59,22 +59,22 @@ The publishable key is public by design: it only lets the app sign in. The data 
 
 ## Client modules
 
-| Module | Purpose |
-|---|---|
-| `src/lib/env.ts` | Reads the three variables and derives the API URL |
-| `src/lib/supabase.ts` | Supabase client for **auth only**; `getAccessToken()` |
-| `src/lib/api/client.ts` | `apiRequest()`: bearer token, JSON, typed `ApiError` (`status`, `code`, `message`) |
-| `src/lib/api/types.ts` | Wire types, exactly as the API sends them (snake_case) |
-| `src/lib/api/threads.ts` | Threads, messages, schedule proposals |
-| `src/lib/api/chatStream.ts` | `streamReply()`: the reply stream over `expo/fetch` |
-| `src/lib/api/schedules.ts` | Schedules and runs, including run polling |
-| `src/lib/api/tools.ts` | App connections |
-| `src/lib/api/me.ts` | The signed-in user: assistant profile, notification setting, usage, push tokens, feedback, data export, account deletion |
-| `src/lib/api/memories.ts` | Memories: list, search, detail, write, correct, accept, retract, restore, merge, replace, delete; the review inbox; people |
-| `src/lib/api/sources.ts` | WhatsApp imports, photos and PDFs as memories, Google Calendar as a source |
-| `src/lib/api/insights.ts` | Insights for the Feed, and feedback on them |
-| `src/lib/api/life.ts` | Life state: the to-do overview, done/drop/reopen, due dates and reminders, the brief preview, chat search |
-| `src/lib/api/activity.ts` | Finished scheduled runs, for the Feed |
+| Module                      | Purpose                                                                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/env.ts`            | Reads the three variables and derives the API URL                                                                          |
+| `src/lib/supabase.ts`       | Supabase client for **auth only**; `getAccessToken()`                                                                      |
+| `src/lib/api/client.ts`     | `apiRequest()`: bearer token, JSON, typed `ApiError` (`status`, `code`, `message`)                                         |
+| `src/lib/api/types.ts`      | Wire types, exactly as the API sends them (snake_case)                                                                     |
+| `src/lib/api/threads.ts`    | Threads, messages, schedule proposals                                                                                      |
+| `src/lib/api/chatStream.ts` | `streamReply()`: the reply stream over `expo/fetch`                                                                        |
+| `src/lib/api/schedules.ts`  | Schedules and runs, including run polling                                                                                  |
+| `src/lib/api/tools.ts`      | App connections                                                                                                            |
+| `src/lib/api/me.ts`         | The signed-in user: assistant profile, notification setting, usage, push tokens, feedback, data export, account deletion   |
+| `src/lib/api/memories.ts`   | Memories: list, search, detail, write, correct, accept, retract, restore, merge, replace, delete; the review inbox; people |
+| `src/lib/api/sources.ts`    | WhatsApp imports, photos and PDFs as memories, Google Calendar as a source                                                 |
+| `src/lib/api/insights.ts`   | Insights for the Feed, and feedback on them                                                                                |
+| `src/lib/api/life.ts`       | Life state: the to-do overview, done/drop/reopen, due dates and reminders, the brief preview, chat search                  |
+| `src/lib/api/activity.ts`   | Finished scheduled runs, for the Feed                                                                                      |
 
 Error messages from the API (`ApiError.message`) are written for people and safe to show in a toast.
 
@@ -82,40 +82,43 @@ Error messages from the API (`ApiError.message`) are written for people and safe
 
 All routes are under `/api/v1` and need `Authorization: Bearer <Supabase access token>`. The full, interactive contract is at `/docs` on the running backend.
 
-| Area | Routes |
-|---|---|
-| User | `GET /me`, `PATCH /me` (assistant name, subtitle, icon, color; notifications on or off), `DELETE /me` (delete the account), `GET /me/export` (all the user's data as a JSON attachment), `GET /me/usage`, `GET /me/usage/history`, `POST /me/push-tokens`, `DELETE /me/push-tokens/{token}` |
-| Memories | `GET /me/memories` (`status` repeatable; default proposed and active; `order=oldest`), `POST /me/memories` (write one), `POST /me/memories/search`, `GET/PATCH/DELETE /me/memories/{id}`, `POST /me/memories/{id}/accept`, `.../retract`, `.../restore`, `.../merge`, `.../replace` (body `other_memory_id`) |
-| Review | `GET /me/memories/review` (proposed count, suggestions, held-back messages), `POST /me/memories/review/accept` (`memory_ids`, up to 100), `POST /me/memories/review/dismiss`, `POST /me/memories/held-back/{run_id}/save`, `POST /me/memories/held-back/{run_id}/dismiss` |
-| People | `GET /me/people` (`entity_type` filter), `GET /me/people/{id}`, `PATCH /me/people/{id}` (`name`), `POST /me/people/{id}/merge` (`other_person_id`) |
-| Life | `GET /me/life`, `GET /me/life/brief` (preview), `POST /me/memories/{id}/complete`, `.../drop`, `.../reopen`; due dates and reminders through `PATCH /me/memories/{id}` (`due_on`, `remind_at`, null clears) and `POST /me/memories` |
-| Chat search | `POST /me/messages/search` with `{ "query": "..." }` |
-| Insights | `GET /me/insights`, `POST /me/insights/feedback` (`key`, `kind`, `useful`) |
-| Sources | `POST /me/imports/whatsapp` (`file_name`, `data_base64`), `POST /me/imports/{id}/start` (`me`, `since`, `only_my_conversations`, `max_conversations`), `GET /me/imports`, `GET /me/imports/{id}`, `POST /me/memories/from-file` (`file_name`, `media_type`, `data_base64`), `GET /me/sources`, `PATCH /me/sources/{app}` (`enabled`), `POST /me/sources/{app}/sync` |
-| Feedback | `POST /feedback` |
-| Threads | `GET /threads`, `POST /threads` (side thread), `POST /threads/main` (get or create), `GET /threads/{id}`, `DELETE /threads/{id}`, `DELETE /threads/{id}/messages` (clear) |
-| Messages | `GET /threads/{id}/messages` (most recent, oldest first), `POST /threads/{id}/messages` (reply stream; text, files, or both) |
-| Proposals | `POST /threads/{id}/messages/{message_id}/proposal/confirm`, `.../proposal/dismiss` |
-| Schedules | `GET /schedules`, `POST /schedules` (from the app's form), `GET /schedules/{id}`, `PATCH /schedules/{id}` (edit, pause, resume, cancel), `DELETE /schedules/{id}`, `POST /schedules/{id}/runs` (run now), `GET /schedules/{id}/runs`, `GET /schedules/{id}/runs/{run_id}` |
-| Activity | `GET /activity` (finished scheduled runs, newest first, with the thread each result went to) |
-| Apps | `GET /tools`, `POST /tools/{slug}/connect`, `GET /tools/{slug}/connection`, `DELETE /tools/{slug}/connection` |
+| Area                   | Routes                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User                   | `GET /me`, `PATCH /me` (assistant name, subtitle, icon, color; notifications on or off), `DELETE /me` (delete the account), `GET /me/export` (all the user's data as a JSON attachment), `GET /me/usage`, `GET /me/usage/history`, `POST /me/push-tokens`, `DELETE /me/push-tokens/{token}`                                                                         |
+| Memories               | `GET /me/memories` (`status` repeatable; default proposed and active; `order=oldest`), `POST /me/memories` (write one), `POST /me/memories/search`, `GET/PATCH/DELETE /me/memories/{id}`, `POST /me/memories/{id}/accept`, `.../retract`, `.../restore`, `.../merge`, `.../replace` (body `other_memory_id`)                                                        |
+| Review                 | `GET /me/memories/review` (proposed count, suggestions, held-back messages), `POST /me/memories/review/accept` (`memory_ids`, up to 100), `POST /me/memories/review/dismiss`, `POST /me/memories/held-back/{run_id}/save`, `POST /me/memories/held-back/{run_id}/dismiss`                                                                                           |
+| People                 | `GET /me/people` (`entity_type` filter), `GET /me/people/{id}`, `PATCH /me/people/{id}` (`name`), `POST /me/people/{id}/merge` (`other_person_id`)                                                                                                                                                                                                                  |
+| Life                   | `GET /me/life`, `GET /me/life/brief` (preview), `POST /me/memories/{id}/complete`, `.../drop`, `.../reopen`; due dates and reminders through `PATCH /me/memories/{id}` (`due_on`, `remind_at`, null clears) and `POST /me/memories`                                                                                                                                 |
+| Chat search            | `POST /me/messages/search` with `{ "query": "..." }`                                                                                                                                                                                                                                                                                                                |
+| Insights               | `GET /me/insights`, `POST /me/insights/feedback` (`key`, `kind`, `useful`)                                                                                                                                                                                                                                                                                          |
+| Sources                | `POST /me/imports/whatsapp` (`file_name`, `data_base64`), `POST /me/imports/{id}/start` (`me`, `since`, `only_my_conversations`, `max_conversations`), `GET /me/imports`, `GET /me/imports/{id}`, `POST /me/memories/from-file` (`file_name`, `media_type`, `data_base64`), `GET /me/sources`, `PATCH /me/sources/{app}` (`enabled`), `POST /me/sources/{app}/sync` |
+| Feedback               | `POST /feedback`                                                                                                                                                                                                                                                                                                                                                    |
+| Threads                | `GET /threads`, `POST /threads` (side thread), `POST /threads/main` (get or create), `GET /threads/{id}`, `DELETE /threads/{id}`, `DELETE /threads/{id}/messages` (clear)                                                                                                                                                                                           |
+| Messages               | `GET /threads/{id}/messages` (most recent, oldest first), `POST /threads/{id}/messages` (reply stream; text, files, or both)                                                                                                                                                                                                                                        |
+| Proposals              | `POST /threads/{id}/messages/{message_id}/proposal/confirm`, `.../proposal/dismiss`                                                                                                                                                                                                                                                                                 |
+| Job application drafts | `POST /threads/{id}/messages/{message_id}/job-application/send` (send the draft card's email through its configured app and update status)                                                                                                                                                                                                                          |
+| Schedules              | `GET /schedules`, `POST /schedules` (from the app's form), `GET /schedules/{id}`, `PATCH /schedules/{id}` (edit, pause, resume, cancel), `DELETE /schedules/{id}`, `POST /schedules/{id}/runs` (run now), `GET /schedules/{id}/runs`, `GET /schedules/{id}/runs/{run_id}`                                                                                           |
+| Activity               | `GET /activity` (finished scheduled runs, newest first, with the thread each result went to)                                                                                                                                                                                                                                                                        |
+| Apps                   | `GET /tools`, `POST /tools/{slug}/connect`, `GET /tools/{slug}/connection`, `DELETE /tools/{slug}/connection`                                                                                                                                                                                                                                                       |
 
 ### The reply stream
 
 `POST /threads/{id}/messages` with `{ "content": "...", "timezone": "Asia/Kolkata" }` answers with newline-delimited JSON:
 
-| Event | When |
-|---|---|
-| `turn_started` | The user message was stored (`user_message`) |
-| `text_delta` | A piece of the reply text; append it |
-| `tool_started` | Cooper started a tool; `label` is what to show, e.g. "Browsing the web" |
-| `browser` | A cloud browser started or changed state; `browser_preview.live_view_url` can be shown live |
-| `connect_link` | An app needs connecting; show the Connect card |
-| `final` | The stored reply (`message`), with its cards in `metadata` |
-| `error` | The turn failed; `message` says why. The user message stays stored |
-| *(blank line)* | A keep-alive, sent every 15 s while the reply is quiet (a long browser task, say), so proxies in front of a hosted API keep the connection open. Skip it; `chatStream.ts` does |
+| Event          | When                                                                                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `turn_started` | The user message was stored (`user_message`)                                                                                                                                   |
+| `text_delta`   | A piece of the reply text; append it                                                                                                                                           |
+| `tool_started` | Cooper started a tool; `label` is what to show, e.g. "Browsing the web"                                                                                                        |
+| `browser`      | A cloud browser started or changed state; `browser_preview.live_view_url` can be shown live                                                                                    |
+| `connect_link` | An app needs connecting; show the Connect card                                                                                                                                 |
+| `final`        | The stored reply (`message`), with its cards in `metadata`                                                                                                                     |
+| `error`        | The turn failed; `message` says why. The user message stays stored                                                                                                             |
+| _(blank line)_ | A keep-alive, sent every 15 s while the reply is quiet (a long browser task, say), so proxies in front of a hosted API keep the connection open. Skip it; `chatStream.ts` does |
 
 A request the server refuses before streaming (404, 409 while a reply is running, 422, 429 over the daily prompt limit, 503) is a normal JSON error. React Native's global `fetch` cannot read a body incrementally, which is why `chatStream.ts` uses `expo/fetch`.
+
+Assistant replies can also carry `metadata.job_application_draft`, a review card with the final email fields (`recipient_email`, `subject`, `body`, source LinkedIn URL, chosen app/tool, and status). Tapping Send calls the endpoint above; the backend executes the stored app action and writes the card status to `sent` or `failed`.
 
 ### Who may sign in, and request size
 
@@ -126,6 +129,7 @@ A deployment can list its users in `ACCESS_ALLOWED_EMAILS`. Anyone else who sign
 Cooper proposes a schedule as a card on its reply (`metadata.schedule_proposal`). Confirming creates the schedule exactly as proposed; the server reads the proposal from the stored message, not from the request. Each slot runs once even with several backend processes.
 
 A rule is a time (`local_time`, HH:MM) in `timezone` with a `frequency`:
+
 - `once` on `start_date`;
 - `daily`;
 - `weekly` on `weekdays` (one or more days);
@@ -174,6 +178,7 @@ Every memory carries `created_by` (`pipeline` or `user`) and `sensitive`.
   - keep both: `POST /me/memories/review/dismiss`.
 
   Its `held_back` list holds messages Cooper would not turn into memories on its own. `reason` is `unclear` or `unreadable`. Save a memory from one with `.../held-back/{run_id}/save`, or dismiss it.
+
 - **Sensitive memories** are shown here and never sent to Cooper, scheduled runs, or any model.
 - **Export:** `GET /me/export` returns everything, sensitive memories included, as one JSON document. The app saves it and opens the share sheet.
 
@@ -214,9 +219,9 @@ Memories carry `state`, `due_on` (YYYY-MM-DD), `remind_at`, `closed_at`, and `cl
   - The daily brief, at `brief_time`, with `metadata.brief.follow_ups` (items due yesterday). Show Done and Not yet; Not yet moves the item to today.
 
   Both are pushed, with `thread_id` and `message_id` in the notification's data. Quiet hours silence only the brief's push. A sensitive reminder never shows its text.
+
 - **Chat search:** `POST /me/messages/search` returns `items` with `thread_id`, `thread_title`, `role`, and a `snippet` whose matches are wrapped in `<<` and `>>`.
 
 ### Memories from chats
 
 Each message the user sends (three words or more, not the assistant's replies) is captured by the backend as memory evidence and processed by the memory pipeline in the background; a moment later its memories appear in `GET /me/memories` (newest first, paged). They are the user's only: the evidence, the people and places it mentions, and the memories carry the user as owner, and deleting the account deletes them. `PATCH /me` with `memory_capture_enabled: false` stops capture for the user. The app registers the phone for push after every sign-in (one permission prompt if notifications are on and it never asked) and unregisters it before signing out (ADR-042). Memories stay `proposed` (unreviewed). Cooper recalls them with its `search_memories` tool (shown as "Checking your memories"), and `POST /me/memories/search` with `{ "query": "..." }` searches them directly: each result carries the memory, the message it rests on (`sources[].evidence`), the people it names, and which kinds of match found it. The query goes in the body, never the URL. Without embeddings configured on the backend, search uses words and names only; `degraded: true` means the backend's embedding provider failed for this search. Costs are shown in `currency` (rupees by default): `GET /me/usage` returns `estimated_cost`, and the history returns `cost` per period and `total_cost`, converted from the USD amounts at the backend's fixed rate (`USAGE_CURRENCY_PER_USD`).
-

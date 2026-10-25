@@ -26,6 +26,7 @@ Welcome to the comprehensive technical documentation for **Zoop** (and autonomou
 **Zoop** is a Universal React Native application built with **Expo (SDK 58)** and **React Native 0.88.0**. It runs seamlessly across iOS, Android, and Web browsers.
 
 ### Key Architectural Highlights:
+
 - **Expo Router Tab Navigation:** Clean file-based routing with a dedicated `(tabs)` group for the 5 core tabs (`chat`, `feed`, `ideas`, `tasks`, `settings`).
 - **Keyboard-Adaptive Chat UI:** Built with `KeyboardAvoidingView`, dynamic safe-area insets, auto-scrolling to recent messages, tap-outside dismissal, and native `tabBarHideOnKeyboard: true` support.
 - **Backend-driven AI Agent:** The app has no server code. Chat, history, schedules, and app connections are served by the FastAPI backend in `memory-layer-for-life/`, where Cooper runs on Claude with Composio and Browserbase tools. Replies stream to the app as newline-delimited JSON. See [BACKEND.md](./BACKEND.md).
@@ -105,6 +106,7 @@ muse_ai_clone/
 ### 1. Root Configuration Files
 
 #### [`package.json`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/package.json)
+
 - **Role:** Declares project metadata, dependencies, and execution scripts.
 - **Key Dependencies:**
   - `expo` (SDK 58): Core application platform.
@@ -121,9 +123,11 @@ muse_ai_clone/
   - `npm run web`: Launches Web browser development instance.
 
 #### [`app.json`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/app.json)
+
 - **Role:** Expo manifest setting app name (`muse_ai_clone`), slug, scheme (`museaiclone`), splash screens, icons, and router plugins.
 
 #### [`tsconfig.json`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/tsconfig.json)
+
 - **Role:** TypeScript path mapping aliases (`@/*` -> `./src/*`).
 
 ---
@@ -131,6 +135,7 @@ muse_ai_clone/
 ### 2. Navigation & Screens (`src/app/`)
 
 #### [`src/app/_layout.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/_layout.tsx)
+
 - **Role:** Root application shell.
 - **Wrappers:**
   - `ThemeProvider`: Synchronizes dark/light color scheme.
@@ -139,13 +144,16 @@ muse_ai_clone/
   - `StatusBar`: Dark status bar icons.
 
 #### [`src/app/index.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/index.tsx)
+
 - **Role:** Google Sign-in onboarding screen.
 - **Features:** Hero glowing logo, brand title, and pressable "Sign in with Google" button with loading feedback. Upon sign-in, replaces route with `/(tabs)/chat`.
 
 #### [`src/app/home.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/home.tsx)
+
 - **Role:** Compatibility redirect route redirecting `/home` to `/(tabs)/chat`.
 
 #### [`src/app/(tabs)/_layout.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/_layout.tsx)
+
 - **Role:** Master Tab Layout for the 5 application routes.
 - **Components & Configuration:**
   - **AppHeader:** Sticky top header with drawer trigger, Cooper mascot avatar, agent name capsule pill, and 3-dots action trigger.
@@ -153,9 +161,11 @@ muse_ai_clone/
   - **Modals:** Integrates `SidebarDrawer`, `SettingsMenuModal`, and `EditAgentModal`.
 
 #### [`src/app/(tabs)/index.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/index.tsx)
+
 - **Role:** Tab root index that redirects automatically to `/chat`.
 
 #### [`src/app/(tabs)/chat.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/chat.tsx)
+
 - **Role:** Primary conversational interface with Cooper AI.
 - **Features:**
   - Message thread with peach terracotta user bubbles (`#E8C4B4`) and soft gray agent bubbles (`#EEF0F2`).
@@ -168,12 +178,15 @@ muse_ai_clone/
   - **Keyboard Handling:** Uses dynamic `KeyboardAvoidingView` vertical offset (`insets.top + 98` on iOS), keyboard listeners to auto-scroll to the bottom when focusing, and `TouchableWithoutFeedback` to dismiss keyboard on background tap.
 
 #### [`src/app/(tabs)/feed.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/feed.tsx)
+
 - **Role:** Minimalist autonomous activity and notification feed screen.
 
 #### [`src/app/(tabs)/ideas.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/ideas.tsx)
+
 - **Role:** Inspiration library featuring pre-built automation cards (AI Builder Cup, App Leaderboard, Shorts Series, Launch Post). Tapping any card displays a selection toast.
 
 #### [`src/app/(tabs)/tasks.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/tasks.tsx)
+
 - **Role:** Autonomous goal manager.
 - **Features:**
   - Schedules loaded from the backend (`GET /schedules`), with run counts and the latest result.
@@ -182,6 +195,7 @@ muse_ai_clone/
   - "+ New" goal creation trigger.
 
 #### [`src/app/(tabs)/settings.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/%28tabs%29/settings.tsx)
+
 - **Role:** Comprehensive account settings, plan limits, and connectors hub.
 - **Features:**
   - Free Plan progress card (11% used, 890 remaining credits).
@@ -190,10 +204,12 @@ muse_ai_clone/
   - Notifications, theme appearance, help & feedback, and sign-out actions.
 
 #### [`src/app/tools.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/app/tools.tsx)
+
 - **Role:** Tools & Connections screen.
 - **Features:** Lists the backend's app catalog with the user's status, starts Composio OAuth linking through the backend, polls pending connections, and supports manage, reconnect, and disconnect.
 
 #### `src/lib/api/`
+
 - **Role:** The only way the app reaches data. One module per area (`threads`, `chatStream`, `schedules`, `tools`, `me`) over `client.ts`, which attaches the Supabase access token and turns failures into a typed `ApiError`. See [BACKEND.md](./BACKEND.md) for the contract.
 
 ---
@@ -201,6 +217,7 @@ muse_ai_clone/
 ### 3. Common Layout & Navigation (`src/components/common/`)
 
 #### [`src/components/common/AppHeader.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/components/common/AppHeader.tsx)
+
 - **Role:** Persistent top navigation bar.
 - **Sub-elements:**
   - Left: Circular button with 2-line menu icon and active blue notification dot.
@@ -208,9 +225,11 @@ muse_ai_clone/
   - Right: Circular button with horizontal 3-dots icon for the settings dropdown.
 
 #### [`src/components/common/MascotAvatar.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/components/common/MascotAvatar.tsx)
+
 - **Role:** Clean circular image component rendering `cooper_mascot.jpg` with a customizable `size` prop.
 
 #### [`src/components/common/SidebarDrawer.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/components/common/SidebarDrawer.tsx)
+
 - **Role:** Sliding modal drawer for conversation history.
 - **Features:**
   - "Main chat" quick-return capsule button.
@@ -218,14 +237,17 @@ muse_ai_clone/
   - Bottom toolbar with settings shortcut, search input field, and new chat compose button.
 
 #### [`src/components/common/SettingsMenuModal.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/components/common/SettingsMenuModal.tsx)
+
 - **Role:** Top-right 3-dots action sheet dropdown.
 - **Actions:** Edit Mascot & Avatar, Rename Agent, Export Chat, Clear Messages, Delete Chat (Destructive).
 
 #### [`src/components/common/EditAgentModal.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/components/common/EditAgentModal.tsx)
+
 - **Role:** Minimalist agent customization card.
 - **Controls:** Avatar preview, Agent Name input, 6 theme accent color dots (Muse Blue, Indigo, Emerald, Amber, Violet, Rose), and Cancel / Save action buttons.
 
 #### [`src/components/common/index.ts`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/components/common/index.ts)
+
 - **Role:** Barrel export for common components.
 
 ---
@@ -233,6 +255,7 @@ muse_ai_clone/
 ### 4. Global Context (`src/context/`)
 
 #### [`src/context/ToastContext.tsx`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/context/ToastContext.tsx)
+
 - **Role:** Application-wide toast notification system.
 - **Exports:** `ToastProvider`, `useToast()`, and standalone trigger `showToast(message: string)`.
 
@@ -241,12 +264,15 @@ muse_ai_clone/
 ### 5. Constants & Mock Datasets (`src/constants/`)
 
 #### [`src/constants/colors.ts`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/constants/colors.ts)
+
 - **Role:** Central design tokens and color definitions.
 
 #### [`src/constants/theme.ts`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/constants/theme.ts)
+
 - **Role:** System typography mappings (`Fonts`) and 8-point spacing scales (`Spacing`).
 
 #### [`src/constants/dummyData.ts`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/constants/dummyData.ts)
+
 - **Role:** Seed datasets for `INITIAL_CHAT_MESSAGES`, `SIDE_CHATS`, `IDEA_ITEMS`, `TASK_GOALS`, `SETTINGS_PLAN_DATA`, and `SETTINGS_CONNECTORS`.
 
 ---
@@ -254,6 +280,7 @@ muse_ai_clone/
 ### 6. Data Types & Interfaces (`src/types/`)
 
 #### [`src/types/index.ts`](file:///Users/rahulsanarahulp/Documents/Projects/React%20Native/muse_ai_clone/src/types/index.ts)
+
 - **Role:** Core TypeScript contracts:
   - `ChatMessage`
   - `SideChatItem`
@@ -271,20 +298,20 @@ muse_ai_clone/
 ```mermaid
 graph TD
   RootLayout["src/app/_layout.tsx (ThemeProvider & Stack)"]
-  
+
   SignInScreen["src/app/index.tsx (Sign In)"]
   TabLayout["src/app/(tabs)/_layout.tsx (Tabs Layout)"]
-  
+
   RootLayout -->|Route: /| SignInScreen
   RootLayout -->|Route: /(tabs)| TabLayout
-  
+
   TabLayout --> AppHeader["components/common/AppHeader"]
   AppHeader --> MascotAvatar["components/common/MascotAvatar"]
-  
+
   TabLayout --> SidebarDrawer["components/common/SidebarDrawer"]
   TabLayout --> SettingsMenuModal["components/common/SettingsMenuModal"]
   TabLayout --> EditAgentModal["components/common/EditAgentModal"]
-  
+
   TabLayout --> ChatScreen["(tabs)/chat.tsx"]
   TabLayout --> FeedScreen["(tabs)/feed.tsx"]
   TabLayout --> IdeasScreen["(tabs)/ideas.tsx"]
@@ -296,17 +323,17 @@ graph TD
 
 ## 🎨 Design System & Color Tokens
 
-| Design Token | Hex / Value | Purpose |
-|---|---|---|
-| `Colors.primary` | `#2563EB` | Main brand blue |
-| `Colors.primaryDark` | `#1D4ED8` | Pressed / hover active state |
-| `Colors.chatBubbleUser` | `#E8C4B4` | Warm peach terracotta user bubble |
-| `Colors.chatBubbleAi` | `#EEF0F2` | Soft light gray agent message bubble |
-| `Colors.tabActiveBg` | `#E6E8EA` | Active tab pill capsule in dock |
-| `Colors.iconDark` | `#1E2022` | Dark charcoal for typography and active icons |
-| `Colors.iconMuted` | `#9E9E9E` | Secondary gray for subtitles & timestamps |
-| `Colors.statusBlue` | `#0066FF` | Online indicator dot on header drawer button |
-| `Colors.white` | `#FFFFFF` | Main background & floating capsules |
+| Design Token            | Hex / Value | Purpose                                       |
+| ----------------------- | ----------- | --------------------------------------------- |
+| `Colors.primary`        | `#2563EB`   | Main brand blue                               |
+| `Colors.primaryDark`    | `#1D4ED8`   | Pressed / hover active state                  |
+| `Colors.chatBubbleUser` | `#E8C4B4`   | Warm peach terracotta user bubble             |
+| `Colors.chatBubbleAi`   | `#EEF0F2`   | Soft light gray agent message bubble          |
+| `Colors.tabActiveBg`    | `#E6E8EA`   | Active tab pill capsule in dock               |
+| `Colors.iconDark`       | `#1E2022`   | Dark charcoal for typography and active icons |
+| `Colors.iconMuted`      | `#9E9E9E`   | Secondary gray for subtitles & timestamps     |
+| `Colors.statusBlue`     | `#0066FF`   | Online indicator dot on header drawer button  |
+| `Colors.white`          | `#FFFFFF`   | Main background & floating capsules           |
 
 ---
 

@@ -252,6 +252,12 @@ class ScheduleProposalError(DomainError):
     code = "SCHEDULE_PROPOSAL_UNAVAILABLE"
 
 
+class JobApplicationDraftError(DomainError):
+    """A message has no sendable job application draft card."""
+
+    code = "JOB_APPLICATION_DRAFT_UNAVAILABLE"
+
+
 class InvalidScheduleError(DomainError):
     """A schedule rule, timezone, or status change is not valid."""
 

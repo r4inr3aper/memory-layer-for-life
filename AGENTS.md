@@ -32,16 +32,16 @@ This is an Expo/React Native application for **Zoop** (and AI companion **Cooper
 
 Always reference and add color definitions in `src/constants/colors.ts`. Never hardcode ad-hoc hex values inside components.
 
-| Token | Hex / Value | Purpose |
-|---|---|---|
-| `Colors.primary` | `#2563EB` | Primary brand blue |
-| `Colors.chatBubbleUser` | `#E8C4B4` | Warm peach terracotta user chat bubble |
-| `Colors.chatBubbleAi` | `#EEF0F2` | Soft light gray agent message bubble |
-| `Colors.tabActiveBg` | `#E6E8EA` | Active tab pill capsule background in dock |
-| `Colors.iconDark` | `#1E2022` | Dark charcoal for icons and typography |
-| `Colors.iconMuted` | `#9E9E9E` | Secondary gray for placeholder and timestamps |
-| `Colors.statusBlue` | `#0066FF` | Online indicator dot on header drawer button |
-| `Colors.white` | `#FFFFFF` | Main background & floating capsules |
+| Token                   | Hex / Value | Purpose                                       |
+| ----------------------- | ----------- | --------------------------------------------- |
+| `Colors.primary`        | `#2563EB`   | Primary brand blue                            |
+| `Colors.chatBubbleUser` | `#E8C4B4`   | Warm peach terracotta user chat bubble        |
+| `Colors.chatBubbleAi`   | `#EEF0F2`   | Soft light gray agent message bubble          |
+| `Colors.tabActiveBg`    | `#E6E8EA`   | Active tab pill capsule background in dock    |
+| `Colors.iconDark`       | `#1E2022`   | Dark charcoal for icons and typography        |
+| `Colors.iconMuted`      | `#9E9E9E`   | Secondary gray for placeholder and timestamps |
+| `Colors.statusBlue`     | `#0066FF`   | Online indicator dot on header drawer button  |
+| `Colors.white`          | `#FFFFFF`   | Main background & floating capsules           |
 
 ---
 

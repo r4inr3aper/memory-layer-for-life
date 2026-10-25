@@ -17,6 +17,8 @@ user's own entities only, and turned into memories that point back at the messag
 
 import uuid
 from datetime import datetime
+import re
+from enum import StrEnum
 from typing import Final
 
 import structlog
@@ -36,9 +38,97 @@ logger = structlog.get_logger(__name__)
 MIN_WORDS: Final = 3
 
 
+class AdmissionDecision(StrEnum):
+    CAPTURE = "capture"
+    TOO_SHORT = "too_short"
+    NOISY_ACK = "noisy_ack"
+    ASSISTANT_DIRECTIVE = "assistant_directive"
+
+
+_ACK_TERMS: Final[frozenset[str]] = frozenset(
+    {
+        "ok",
+        "okay",
+        "thanks",
+        "thank",
+        "cool",
+        "great",
+        "nice",
+        "got",
+        "done",
+        "sure",
+        "yep",
+        "yup",
+        "alright",
+    }
+)
+
+_ASSISTANT_REFERENCES: Final[tuple[str, ...]] = (
+    "you",
+    "zoop",
+    "cooper",
+    "assistant",
+)
+
+_ASSISTANT_VERBS: Final[tuple[str, ...]] = (
+    "find",
+    "search",
+    "summarize",
+    "write",
+    "draft",
+    "send",
+    "book",
+    "order",
+    "plan",
+)
+
+_SELF_CONTEXT_RE = re.compile(r"\b(i|me|my|mine|we|our|us)\b", re.IGNORECASE)
+
+
 def worth_capturing(text: str) -> bool:
     """Whether a message says enough to be worth an extraction call."""
-    return len(text.split()) >= MIN_WORDS
+    return admission_decision(text) is AdmissionDecision.CAPTURE
+
+
+def admission_decision(text: str) -> AdmissionDecision:
+    """Classify whether a chat message should enter the memory pipeline.
+
+    This gate keeps obvious noise and pure assistant directives from spending extraction
+    calls and polluting the review inbox.
+    """
+    words = text.split()
+    if len(words) < MIN_WORDS:
+        return AdmissionDecision.TOO_SHORT
+    if _looks_like_ack(text):
+        return AdmissionDecision.NOISY_ACK
+    if _looks_like_assistant_directive(text):
+        return AdmissionDecision.ASSISTANT_DIRECTIVE
+    return AdmissionDecision.CAPTURE
+
+
+def _looks_like_ack(text: str) -> bool:
+    tokens = [token.strip(".,!?;:'\"()[]{}") for token in text.lower().split()]
+    compact = [token for token in tokens if token]
+    if not compact:
+        return True
+    return all(token in _ACK_TERMS for token in compact)
+
+
+def _looks_like_assistant_directive(text: str) -> bool:
+    lower = " ".join(text.lower().split())
+    if not lower:
+        return False
+
+    references_assistant = any(ref in lower.split() for ref in _ASSISTANT_REFERENCES)
+    asks_politely = lower.startswith("please ")
+    asks_directly = lower.startswith(("can you ", "could you ", "would you ", "will you "))
+    if not (references_assistant or asks_politely or asks_directly):
+        return False
+
+    if _SELF_CONTEXT_RE.search(lower):
+        return False
+
+    return any(f" {verb} " in f" {lower} " for verb in _ASSISTANT_VERBS)
 
 
 class MemoryCapture:
@@ -72,7 +162,14 @@ class MemoryCapture:
         ``timezone_name`` is the user's, stored with the evidence so that "tomorrow" in the
         message means the user's tomorrow.
         """
-        if not self._enabled or not worth_capturing(text):
+        decision = admission_decision(text)
+        if not self._enabled or decision is not AdmissionDecision.CAPTURE:
+            logger.debug(
+                "memory_capture_skipped",
+                message_id=str(message_id),
+                reason=decision.value,
+                globally_enabled=self._enabled,
+            )
             return
         self._background.spawn(
             self._capture(user_id, message_id, thread_id, text, sent_at, timezone_name),
