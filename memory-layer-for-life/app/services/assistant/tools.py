@@ -1,17 +1,21 @@
 """The tools the assistant can call.
 
+
 Tool input is model output and therefore untrusted: each tool validates it with a strict
 model before acting, and reports problems back to the model as an error result rather
 than raising. Results are short JSON or plain text, cut to a size the model can use.
+
 
 Which tools exist depends on configuration. Without a Browserbase key there is no
 browser tool, without a Composio key there are no app tools, and without a retrieval
 engine there is no memory search.
 
+
 Scheduled runs never get the browser. A run may change data only in the app it delivers
 to, and a browser task is free-form instructions to a browser agent: nothing can tell
 reading a page from submitting a form or booking, so the rule could not be enforced.
 """
+
 
 import asyncio
 import json
@@ -21,11 +25,19 @@ from datetime import datetime
 from typing import Final
 from zoneinfo import ZoneInfo
 
+
+import structlog
 from pydantic import Field, ValidationError
+
 
 from app.core.clock import Clock, utc_now
 from app.domain.enums import LlmCallOrigin, ScheduleDelivery, ScheduleFrequency, Weekday
-from app.domain.errors import DomainError, InvalidRetrievalQueryError, InvalidScheduleError
+from app.domain.errors import (
+    DomainError,
+    IntegrationError,
+    InvalidRetrievalQueryError,
+    InvalidScheduleError,
+)
 from app.domain.retrieval import RetrievalQuery
 from app.domain.schedule_rules import (
     MAX_INTERVAL_HOURS,
@@ -64,6 +76,10 @@ from app.services.retrieval.documents import memory_type_label
 from app.services.retrieval.engine import RetrievalEngine, RetrievalResult
 from app.services.tool_connections import ToolConnectionService
 
+
+logger = structlog.get_logger(__name__)
+
+
 _MAX_RESULT_CHARS: Final = 12_000
 _MAX_SCHEMA_CHARS: Final = 2_500
 _MAX_TOOL_MATCHES: Final = 5
@@ -80,12 +96,17 @@ _WRITE_WORDS: Final = frozenset(
     }
 )  # fmt: skip
 
+
 Sleep = Callable[[float], Awaitable[None]]
 Monotonic = Callable[[], float]
 
 
+
+
 def changes_data(tool_slug: str) -> bool:
     return any(word in _WRITE_WORDS for word in tool_slug.upper().split("_"))
+
+
 
 
 def compact(value: object, limit: int = _MAX_RESULT_CHARS) -> str:
@@ -93,7 +114,11 @@ def compact(value: object, limit: int = _MAX_RESULT_CHARS) -> str:
     return text if len(text) <= limit else f"{text[:limit]}… (cut, {len(text)} characters)"
 
 
+
+
 # --- propose_schedule ----------------------------------------------------------------
+
+
 
 
 class ProposeScheduleInput(ToolInput):
@@ -110,6 +135,8 @@ class ProposeScheduleInput(ToolInput):
     delivery: ScheduleDelivery = ScheduleDelivery.CHAT
     delivery_target: str | None = Field(default=None, max_length=200)
     summary: str = Field(min_length=1, max_length=400)
+
+
 
 
 class ProposeScheduleTool:
@@ -192,9 +219,11 @@ class ProposeScheduleTool:
         },
     )
 
+
     def __init__(self, connections: ToolConnectionService, *, clock: Clock = utc_now) -> None:
         self._connections = connections
         self._clock = clock
+
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         if not turn.allow_proposals:
@@ -225,6 +254,7 @@ class ProposeScheduleTool:
         except DomainError as error:
             return ToolOutput(error.message, is_error=True)
 
+
         app = delivery_app(proposal_input.delivery)
         if app is not None and app not in await self._connections.last_connected(turn.principal):
             spec = find_tool(app)
@@ -234,6 +264,7 @@ class ProposeScheduleTool:
                 "(connect_app), or deliver to chat instead.",
                 is_error=True,
             )
+
 
         turn.proposal = ScheduleProposal(
             title=proposal_input.title,
@@ -256,6 +287,8 @@ class ProposeScheduleTool:
         )
 
 
+
+
 def _proposal_rule(fields: RuleFields, now: datetime) -> ScheduleRule:
     """The rule, checked: it must have a run still to come, or confirming would fail."""
     rule = fields.build(now)
@@ -266,12 +299,18 @@ def _proposal_rule(fields: RuleFields, now: datetime) -> ScheduleRule:
     return rule
 
 
+
+
 # --- browse_web ----------------------------------------------------------------------
+
+
 
 
 class BrowseWebInput(ToolInput):
     task: str = Field(min_length=1, max_length=2000)
     start_url: str | None = Field(default=None, max_length=2000)
+
+
 
 
 class BrowseWebTool:
@@ -298,6 +337,7 @@ class BrowseWebTool:
         },
     )
 
+
     def __init__(
         self,
         browser: BrowserbaseClient,
@@ -311,6 +351,7 @@ class BrowseWebTool:
         self._sleep = sleep
         self._monotonic = monotonic
 
+
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
             browse_input = BrowseWebInput.model_validate(arguments)
@@ -321,31 +362,48 @@ class BrowseWebTool:
         ):
             return ToolOutput("start_url must be a full http(s) URL.", is_error=True)
 
+
         task = browse_input.task
         if browse_input.start_url:
             task = f"{task}\nStart at {browse_input.start_url}."
         deadline = self._monotonic() + self._timeout_seconds
 
+
         run = await self._browser.start_run(task)
-        preview = await self._publish(turn, run, browse_input.task, live_view_url=None)
-        while not run.finished and self._monotonic() < deadline:
-            await self._sleep(_BROWSER_POLL_SECONDS)
-            had_session = run.session_id is not None
-            run = await self._browser.get_run(run.run_id)
-            if run.session_id is not None and not had_session:
-                # The browser just started: show its live view.
-                preview = await self._publish(turn, run, browse_input.task, live_view_url=None)
+        try:
+            preview = await self._publish(turn, run, browse_input.task, live_view_url=None)
+            while not run.finished and self._monotonic() < deadline:
+                await self._sleep(_BROWSER_POLL_SECONDS)
+                had_session = run.session_id is not None
+                run = await self._browser.get_run(run.run_id)
+                if run.session_id is not None and not had_session:
+                    # The browser just started: show its live view.
+                    preview = await self._publish(turn, run, browse_input.task, live_view_url=None)
+        except asyncio.CancelledError:
+            # The reply was cancelled (the server is stopping): stop the remote run rather
+            # than leave a browser working, and billing, for nobody.
+            await asyncio.shield(self._stop(run.run_id))
+            raise
+
 
         if not run.finished:
-            await self._publish(turn, run, browse_input.task, preview.live_view_url, "running")
+            # Nobody would ever collect its result, so it is stopped, not left running.
+            await self._stop(run.run_id)
+            await self._publish(turn, run, browse_input.task, preview.live_view_url, "failed")
             return ToolOutput(
                 compact(
                     {
-                        "status": "still_running",
-                        "note": "The browser is still working. The user can watch it live.",
+                        "status": "timed_out",
+                        "note": (
+                            f"The browser task took longer than {round(self._timeout_seconds)}"
+                            " seconds and was stopped. Tell the user, and suggest a narrower"
+                            " task."
+                        ),
                     }
-                )
+                ),
+                is_error=True,
             )
+
 
         status = _browser_status(run)
         await self._publish(turn, run, browse_input.task, preview.live_view_url, status)
@@ -361,6 +419,7 @@ class BrowseWebTool:
             is_error=status == "failed",
         )
 
+
     async def _publish(
         self,
         turn: TurnContext,
@@ -370,7 +429,11 @@ class BrowseWebTool:
         status: str = "running",
     ) -> BrowserPreview:
         if live_view_url is None and run.session_id is not None:
-            live_view_url = await self._browser.live_view_url(run.session_id)
+            try:
+                live_view_url = await self._browser.live_view_url(run.session_id)
+            except IntegrationError:
+                # The task goes on without its preview.
+                logger.warning("browser_live_view_unavailable", session_id=run.session_id)
         preview = BrowserPreview(
             run_id=run.run_id,
             session_id=run.session_id,
@@ -383,26 +446,42 @@ class BrowseWebTool:
         return preview
 
 
+    async def _stop(self, run_id: str) -> None:
+        try:
+            await self._browser.stop_run(run_id)
+        except IntegrationError:
+            logger.warning("browser_run_stop_failed", run_id=run_id)
+
+
+
+
 def _browser_status(run: BrowserRun) -> str:
     if run.login_required or run.status == "PAUSED":
         return "login_required"
     return "completed" if run.status == "COMPLETED" else "failed"
 
 
+
+
 # --- App tools -----------------------------------------------------------------------
+
+
 
 
 class AppAccess:
     """Composio sessions and connected accounts, looked up once per turn."""
 
+
     def __init__(self, composio: ComposioClient, connections: ToolConnectionService) -> None:
         self.composio = composio
         self.connections = connections
+
 
     async def accounts(self, turn: TurnContext) -> dict[str, list[str]]:
         if turn.active_accounts is None:
             turn.active_accounts = await self.connections.active_accounts(turn.principal)
         return turn.active_accounts
+
 
     async def session(self, turn: TurnContext, app: str) -> str | None:
         """The app's tool session, or None when the user has not connected the app."""
@@ -416,6 +495,8 @@ class AppAccess:
         return turn.app_sessions[app]
 
 
+
+
 def _not_connected(app: str, turn: TurnContext) -> ToolOutput:
     spec = find_tool(app)
     name = spec.name if spec is not None else app
@@ -426,12 +507,18 @@ def _not_connected(app: str, turn: TurnContext) -> ToolOutput:
     )
 
 
+
+
 _APP_PROPERTY: Final = {"type": "string", "enum": _APP_SLUGS, "description": "The app."}
+
+
 
 
 class FindAppToolsInput(ToolInput):
     app: str
     use_case: str = Field(min_length=1, max_length=1000)
+
+
 
 
 class FindAppToolsTool:
@@ -455,8 +542,10 @@ class FindAppToolsTool:
         },
     )
 
+
     def __init__(self, access: AppAccess) -> None:
         self._access = access
+
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
@@ -486,10 +575,14 @@ class FindAppToolsTool:
         return ToolOutput(compact({"connected": True, "tools": tools}))
 
 
+
+
 class RunAppToolInput(ToolInput):
     app: str
     tool_slug: str = Field(min_length=1, max_length=200)
     arguments: dict[str, object] = Field(default_factory=dict)
+
+
 
 
 class RunAppToolTool:
@@ -512,8 +605,10 @@ class RunAppToolTool:
         },
     )
 
+
     def __init__(self, access: AppAccess) -> None:
         self._access = access
+
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
@@ -536,6 +631,7 @@ class RunAppToolTool:
                 is_error=True,
             )
 
+
         session_id = await self._access.session(turn, app)
         if session_id is None:
             return _not_connected(app, turn)
@@ -554,8 +650,12 @@ class RunAppToolTool:
         )
 
 
+
+
 class ConnectAppInput(ToolInput):
     app: str
+
+
 
 
 class ConnectAppTool:
@@ -569,8 +669,10 @@ class ConnectAppTool:
         input_schema={"type": "object", "properties": {"app": _APP_PROPERTY}, "required": ["app"]},
     )
 
+
     def __init__(self, connections: ToolConnectionService) -> None:
         self._connections = connections
+
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
@@ -595,15 +697,22 @@ class ConnectAppTool:
         )
 
 
+
+
 # --- search_memories -----------------------------------------------------------------
+
 
 _MAX_MEMORY_RESULTS: Final = 10
 _MAX_EVIDENCE_QUOTE: Final = 200
 
 
+
+
 class SearchMemoriesInput(ToolInput):
     query: str = Field(min_length=1, max_length=300)
     limit: int = Field(default=5, ge=1, le=_MAX_MEMORY_RESULTS)
+
+
 
 
 class SearchMemoriesTool:
@@ -636,8 +745,10 @@ class SearchMemoriesTool:
         },
     )
 
+
     def __init__(self, engine: RetrievalEngine) -> None:
         self._engine = engine
+
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
@@ -654,6 +765,8 @@ class SearchMemoriesTool:
             context=LlmCallContext(origin=LlmCallOrigin.RETRIEVAL, user_id=turn.principal.id),
         )
         return ToolOutput(format_memories(result, timezone_name=turn.timezone_name))
+
+
 
 
 def format_memories(result: RetrievalResult, *, timezone_name: str) -> str:
@@ -682,11 +795,16 @@ def format_memories(result: RetrievalResult, *, timezone_name: str) -> str:
     return "\n".join(lines)
 
 
+
+
 # --- Toolbox -------------------------------------------------------------------------
+
+
 
 
 class AssistantToolbox:
     """Builds the tool set for a chat turn or a scheduled run from what is configured."""
+
 
     def __init__(
         self,
@@ -725,6 +843,7 @@ class AssistantToolbox:
         )
         self._connect = ConnectAppTool(connections) if composio is not None else None
 
+
     @property
     def capabilities(self) -> Capabilities:
         return Capabilities(
@@ -733,6 +852,7 @@ class AssistantToolbox:
             memories=self._memories is not None,
             life=bool(self._life_read),
         )
+
 
     def for_chat(self) -> list[AssistantTool]:
         tools: list[AssistantTool] = [self._propose]
@@ -747,6 +867,7 @@ class AssistantToolbox:
             tools.append(self._connect)
         return tools
 
+
     def for_schedule(self) -> list[AssistantTool]:
         """No browser and no proposals or connect links (see the module docstring)."""
         tools: list[AssistantTool] = []
@@ -758,5 +879,12 @@ class AssistantToolbox:
         return tools
 
 
+
+
 def delivery_app(delivery: ScheduleDelivery) -> str | None:
     return DELIVERY_TOOLKITS.get(delivery)
+
+
+
+
+
