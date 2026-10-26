@@ -4,24 +4,27 @@
  * Push notifications for this account: the main switch (`notifications_enabled`), which
  * also asks for permission and registers this device's Expo push token, and what Cooper
  * sends on its own (ProactiveSettings): the daily brief, reminders, and quiet hours.
+ *
+ * A pushed screen with a large title over inset-grouped sections; anything that stops
+ * notifications from reaching this device is explained right under the main switch.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Linking,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { InformationCircleIcon } from '@hugeicons/core-free-icons';
-import { ScreenHeader } from '@/components/common/ScreenHeader';
 import { ProactiveSettings } from '@/components/settings/ProactiveSettings';
+import {
+  AppSwitch,
+  AppText,
+  LargeTitle,
+  ListRow,
+  ListSection,
+  ScreenHeader,
+  useScrollY,
+} from '@/components/ui';
 import { Colors } from '@/constants/colors';
 import { showToast } from '@/context/ToastContext';
 import { getErrorMessage, isAbortError } from '@/lib/api/client';
@@ -38,6 +41,8 @@ interface Notice {
 }
 
 export default function NotificationsScreen() {
+  const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrollY();
   const [isEnabled, setIsEnabled] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -111,77 +116,83 @@ export default function NotificationsScreen() {
   const visibleNotice = notice ?? (unavailableReason ? { message: unavailableReason } : null);
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <ScreenHeader title="Notifications" />
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScreenHeader title="Notifications" scrollY={scrollY} />
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.groupCard}>
-          <View style={styles.settingRow}>
-            <View style={styles.settingText}>
-              <Text style={styles.settingTitle}>Notifications</Text>
-              <Text style={styles.settingDescription}>
-                Scheduled task results, reminders, and your daily brief on this device.
-              </Text>
-            </View>
-            {isEnabled === null ? (
-              loadError ? null : (
-                <ActivityIndicator color={Colors.primary} />
+      <Animated.ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}>
+        <LargeTitle title="Notifications" />
+
+        <ListSection footer="Scheduled task results, reminders, and your daily brief on this device.">
+          <ListRow
+            title="Notifications"
+            accessory={
+              isEnabled === null ? (
+                loadError ? null : (
+                  <ActivityIndicator color={Colors.secondaryLabel} />
+                )
+              ) : (
+                <AppSwitch
+                  value={isEnabled}
+                  onValueChange={handleToggle}
+                  disabled={isSaving}
+                  accessibilityLabel="Notifications"
+                />
               )
-            ) : (
-              <Switch
-                value={isEnabled}
-                onValueChange={handleToggle}
-                disabled={isSaving}
-                trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                thumbColor={isEnabled ? Colors.primary : Colors.surfaceMuted}
-                accessibilityLabel="Notifications"
-              />
-            )}
-          </View>
-        </View>
-
-        <ProactiveSettings />
+            }
+          />
+        </ListSection>
 
         {loadError ? (
-          <TouchableOpacity
-            style={styles.errorBox}
-            onPress={() => {
-              setLoadError(null);
-              loadSetting();
-            }}
-            activeOpacity={0.75}
-            accessibilityRole="button">
-            <Text style={styles.errorText}>{loadError}</Text>
-            <Text style={styles.linkText}>Try again</Text>
-          </TouchableOpacity>
+          <ListSection>
+            <View style={styles.messageCell}>
+              <AppText variant="subheadline" color="destructive">
+                {loadError}
+              </AppText>
+            </View>
+            <ListRow
+              title="Try again"
+              action
+              onPress={() => {
+                setLoadError(null);
+                loadSetting();
+              }}
+            />
+          </ListSection>
         ) : null}
 
         {visibleNotice ? (
-          <View style={styles.noticeBox}>
-            <HugeiconsIcon
-              icon={InformationCircleIcon}
-              size={18}
-              color={Colors.primary}
-              strokeWidth={2}
-            />
-            <View style={styles.noticeBody}>
-              <Text style={styles.noticeText}>{visibleNotice.message}</Text>
-              {visibleNotice.showSettingsLink ? (
-                <TouchableOpacity
-                  onPress={() => {
-                    Linking.openSettings().catch(() =>
-                      showToast('Open your device settings to allow notifications.')
-                    );
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityRole="button">
-                  <Text style={styles.linkText}>Open settings</Text>
-                </TouchableOpacity>
-              ) : null}
+          <ListSection>
+            <View style={styles.messageCell}>
+              <HugeiconsIcon
+                icon={InformationCircleIcon}
+                size={20}
+                color={Colors.tint}
+                strokeWidth={2}
+              />
+              <AppText variant="subheadline" style={styles.messageText}>
+                {visibleNotice.message}
+              </AppText>
             </View>
-          </View>
+            {visibleNotice.showSettingsLink ? (
+              <ListRow
+                title="Open settings"
+                action
+                onPress={() => {
+                  Linking.openSettings().catch(() =>
+                    showToast('Open your device settings to allow notifications.')
+                  );
+                }}
+              />
+            ) : null}
+          </ListSection>
         ) : null}
-      </ScrollView>
+
+        <ProactiveSettings />
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -189,78 +200,20 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.groupedBackground,
   },
   scrollView: {
     flex: 1,
   },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
-    gap: 16,
-  },
-  groupCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
-    overflow: 'hidden',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  settingText: {
-    flex: 1,
-  },
-  settingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
-  },
-  settingDescription: {
-    marginTop: 3,
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.textSecondary,
-  },
-  noticeBox: {
+  messageCell: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.primaryBorder,
-    backgroundColor: Colors.primarySubtle,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.secondaryGroupedBackground,
   },
-  noticeBody: {
+  messageText: {
     flex: 1,
-    gap: 8,
-  },
-  noticeText: {
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: Colors.textPrimary,
-  },
-  errorBox: {
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: Colors.errorLight,
-    gap: 6,
-  },
-  errorText: {
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: Colors.error,
-  },
-  linkText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Colors.primary,
   },
 });

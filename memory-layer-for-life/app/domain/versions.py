@@ -14,9 +14,9 @@ from typing import Final
 PIPELINE_VERSION: Final = "1.0.0"
 
 NORMALIZER_VERSION: Final = "1"
-EXTRACTION_SCHEMA_VERSION: Final = "1.0"
+EXTRACTION_SCHEMA_VERSION: Final = "1.1"
 RESOLVER_VERSION: Final = "1"
-MEMORY_BUILDER_VERSION: Final = "1"
+MEMORY_BUILDER_VERSION: Final = "2"
 
 
 @dataclass(frozen=True, slots=True)

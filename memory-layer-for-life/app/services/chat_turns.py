@@ -13,7 +13,6 @@ a lease left behind by a process that died expires on its own.
 """
 
 import asyncio
-import re
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
@@ -26,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.clock import Clock, utc_now
 from app.db.session import transaction
 from app.domain.attachments import ATTACHMENT_TYPES
+from app.domain.conversation import is_explicit_approval
 from app.domain.enums import ChatRole, LlmCallOrigin, LlmOperation, ThreadKind, ToolConnectionStatus
 from app.domain.errors import (
     ChatTurnInProgressError,
@@ -40,6 +40,8 @@ from app.integrations.assistant.base import AssistantModel, AssistantText, Attac
 from app.integrations.llm_calls import LlmCallContext
 from app.models.chat_message import ChatMessage
 from app.repositories.chat_repository import ChatRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.link_repository import LinkRepository
 from app.repositories.tool_connection_repository import ToolConnectionRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.message_metadata import AttachmentNote, MessageMetadata
@@ -52,7 +54,12 @@ from app.services.assistant.context import (
     TurnFinished,
     TurnStarted,
 )
-from app.services.assistant.prompts import chat_context, chat_instructions
+from app.services.assistant.prompts import (
+    chat_context,
+    chat_instructions,
+    document_label,
+    link_label,
+)
 from app.services.assistant.tools import AssistantToolbox
 from app.services.background import BackgroundWork
 from app.services.chat import (
@@ -62,7 +69,6 @@ from app.services.chat import (
     title_from_text,
     turn_running,
 )
-from app.services.memory_capture import MemoryCapture
 from app.services.usage import UsageService
 
 logger = structlog.get_logger(__name__)
@@ -71,21 +77,6 @@ UNEXPECTED_ERROR_CODE: Final = "UNEXPECTED_ERROR"
 _UNEXPECTED_ERROR_MESSAGE: Final = "Cooper ran into an unexpected problem. Try again."
 _PROPOSAL_FALLBACK: Final = "Schedule this task?"
 _EMPTY_REPLY_FALLBACK: Final = "Done."
-_APPROVAL_PREFIXES: Final = (
-    "yes",
-    "yep",
-    "yeah",
-    "ok",
-    "okay",
-    "confirm",
-    "approved",
-    "proceed",
-    "go ahead",
-    "do it",
-    "send it",
-    "create it",
-)
-_APPROVAL_BLOCKERS: Final = ("?", " not ", " don't", " dont", " stop", " cancel")
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +93,8 @@ class _Context:
     history: list[UserText | AssistantText]
     connected_apps: list[str]
     assistant_name: str | None
+    documents: list[str]
+    links: list[str]
 
 
 class ChatTurnService:
@@ -115,11 +108,9 @@ class ChatTurnService:
         usage: UsageService,
         max_steps: int,
         limits: TurnLimits,
-        capture: MemoryCapture | None = None,
         clock: Clock = utc_now,
     ) -> None:
         self._session_factory = session_factory
-        self._capture = capture
         self._agent = AssistantAgent(model, max_steps=max_steps) if model is not None else None
         self._toolbox = toolbox
         self._background = background
@@ -158,19 +149,11 @@ class ChatTurnService:
         if agent is None:
             raise ProviderNotConfiguredError
 
+        # Memories are captured from the chat once it goes quiet (``MemoryCapture``), with
+        # the assistant's replies as context, so nothing is captured here.
         user_message = await self._store_user_message(
             principal, thread_id, text, attachments, timezone_name=timezone_name
         )
-        if self._capture is not None:
-            # The user's own words only; a message that is just files has none.
-            self._capture.capture_chat_message(
-                user_id=principal.id,
-                message_id=user_message.id,
-                thread_id=thread_id,
-                text=text,
-                sent_at=user_message.created_at,
-                timezone_name=timezone_name,
-            )
         queue: asyncio.Queue[TurnEvent | None] = asyncio.Queue()
         self._background.spawn(
             self._run(
@@ -276,6 +259,8 @@ class ChatTurnService:
                     user_name=principal.display_name,
                     connected_apps=context.connected_apps,
                     assistant_name=context.assistant_name,
+                    documents=context.documents,
+                    links=context.links,
                 ),
                 history=context.history,
                 tools=self._toolbox.for_chat(),
@@ -325,6 +310,8 @@ class ChatTurnService:
             )
             connections = await ToolConnectionRepository(session).list_for_user(principal.id)
             user = await UserRepository(session).get(principal.id)
+            documents = await DocumentRepository(session).list_for(principal.id)
+            links = await LinkRepository(session).list_for(principal.id)
         connected = [
             row.toolkit_slug
             for row in connections
@@ -338,6 +325,13 @@ class ChatTurnService:
             history=history,
             connected_apps=_app_names(connected),
             assistant_name=user.assistant_name if user is not None else None,
+            documents=[
+                document_label(
+                    document.title, is_resume=document.is_resume, attachable=document.has_file
+                )
+                for document in documents
+            ],
+            links=[link_label(link.title, link.url, link.kind) for link in links],
         )
 
     async def _store_reply(
@@ -401,10 +395,4 @@ def _app_names(slugs: Sequence[str]) -> list[str]:
 
 def _explicit_action_approval(text: str) -> bool:
     """True when a short user message clearly approves executing a pending action."""
-    cleaned = re.sub(r"\s+", " ", text.strip().lower())
-    if not cleaned or len(cleaned) > 80:
-        return False
-    framed = f" {cleaned} "
-    if any(blocker in framed for blocker in _APPROVAL_BLOCKERS):
-        return False
-    return any(cleaned.startswith(prefix) for prefix in _APPROVAL_PREFIXES)
+    return is_explicit_approval(text)

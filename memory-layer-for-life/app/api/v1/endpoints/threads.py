@@ -162,8 +162,9 @@ async def list_messages(
     messages, total = await chat.list_messages(
         principal, thread_id, limit=page.limit, offset=page.offset
     )
+    saved = await chat.saved_memories(principal, messages)
     return Page(
-        items=[to_message_response(message) for message in messages],
+        items=[to_message_response(message, saved.get(message.id, ())) for message in messages],
         total=total,
         limit=page.limit,
         offset=page.offset,

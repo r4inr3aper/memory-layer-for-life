@@ -4,28 +4,49 @@
  * A person, place, or thing from the user's memories: their name and other names, and
  * the memories that mention them. When Cooper got them wrong, the user renames them (the
  * old name keeps matching later messages) or merges in someone who is the same person.
+ *
+ * Their name is the large title; Rename and "Same person as…" are rows above the memories,
+ * and each opens a sheet.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
   RefreshControl,
   StyleSheet,
-  Text,
   TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import {
+  AlertCircleIcon,
+  Brain01Icon,
+  PencilEdit02Icon,
+  UserGroupIcon,
+  UserSwitchIcon,
+} from '@hugeicons/core-free-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScreenHeader } from '@/components/common/ScreenHeader';
-import { MemoryRow } from '@/components/memories/MemoryRow';
+import {
+  AppText,
+  BottomSheet,
+  EmptyState,
+  LargeTitle,
+  ListRow,
+  ListSection,
+  ScreenHeader,
+  useScrollY,
+} from '@/components/ui';
+import {
+  EntityAvatar,
+  InsetCell,
+  InsetGroupHeader,
+  LEADING_INSET,
+  MemoryRow,
+} from '@/components/memories/MemoryRow';
 import { Colors } from '@/constants/colors';
+import { Typography } from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { useRequireSession } from '@/hooks/useRequireSession';
 import { ApiError, getErrorMessage, isAbortError } from '@/lib/api/client';
@@ -39,6 +60,8 @@ const NAME_MAX_LENGTH = 200;
 export default function PersonScreen() {
   const hasSession = useRequireSession();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrollY();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [person, setPerson] = useState<PersonDetail | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
@@ -80,77 +103,87 @@ export default function PersonScreen() {
     return <View style={styles.safeArea} />;
   }
 
+  const isReady = status !== 'loading' && status !== 'missing' && status !== 'error' && person;
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <ScreenHeader title={person?.name ?? 'Person'} fallbackHref="/memories" />
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      {/* The bar shows its small title at once until there is a large one to scroll away. */}
+      <ScreenHeader
+        title={person?.name ?? 'Person'}
+        fallbackHref="/memories"
+        scrollY={isReady ? scrollY : undefined}
+      />
 
       {status === 'loading' ? (
-        <ActivityIndicator style={styles.spinner} color={Colors.primary} />
+        <ActivityIndicator style={styles.spinner} color={Colors.systemGray} />
       ) : status === 'missing' ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>Not found</Text>
-          <Text style={styles.emptyText}>They may have been merged or deleted.</Text>
+          <EmptyState
+            icon={UserGroupIcon}
+            title="Not found"
+            message="They may have been merged or deleted."
+          />
         </View>
       ) : status === 'error' || !person ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>{errorMessage}</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={() => {
+          <EmptyState
+            icon={AlertCircleIcon}
+            title={errorMessage}
+            actionTitle="Try again"
+            onAction={() => {
               setStatus('loading');
               void load();
             }}
-            activeOpacity={0.75}>
-            <Text style={styles.retryText}>Try again</Text>
-          </TouchableOpacity>
+          />
         </View>
       ) : (
-        <FlatList
+        <Animated.FlatList
           data={person.memories}
           keyExtractor={(memory) => memory.id}
-          contentContainerStyle={styles.listContent}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
           ListHeaderComponent={
             <View>
-              <View style={styles.card}>
-                <Text style={styles.name}>{person.name}</Text>
-                <Text style={styles.meta}>
-                  {person.memory_count === 1 ? '1 memory' : `${person.memory_count} memories`}
-                  {person.last_seen_at
+              <LargeTitle
+                title={person.name}
+                subtitle={
+                  (person.memory_count === 1 ? '1 memory' : `${person.memory_count} memories`) +
+                  (person.last_seen_at
                     ? ` · last mentioned ${formatRelativeTime(person.last_seen_at)}`
-                    : ''}
-                </Text>
-                {person.aliases.length ? (
-                  <Text style={styles.meta}>Also called {person.aliases.join(', ')}</Text>
-                ) : null}
-                <View style={styles.actionRow}>
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => setSheet('rename')}
-                    activeOpacity={0.8}
-                    accessibilityRole="button">
-                    <Text style={styles.actionText}>Rename</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => setSheet('merge')}
-                    activeOpacity={0.8}
-                    accessibilityRole="button">
-                    <Text style={styles.actionText}>Same person as…</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              <Text style={styles.sectionTitle}>Memories</Text>
+                    : '')
+                }
+              />
+              <ListSection
+                footer={
+                  person.aliases.length ? `Also called ${person.aliases.join(', ')}` : undefined
+                }>
+                <ListRow
+                  icon={PencilEdit02Icon}
+                  iconColor={Colors.systemBlue}
+                  title="Rename"
+                  onPress={() => setSheet('rename')}
+                />
+                <ListRow
+                  icon={UserSwitchIcon}
+                  iconColor={Colors.systemIndigo}
+                  title="Same person as…"
+                  onPress={() => setSheet('merge')}
+                />
+              </ListSection>
+              <InsetGroupHeader title="Memories" />
             </View>
           }
-          renderItem={({ item }) => (
-            <MemoryRow
-              memory={item}
-              onPress={() => router.push({ pathname: '/memories/[id]', params: { id: item.id } })}
-            />
+          renderItem={({ item, index }) => (
+            <InsetCell first={index === 0} last={index === person.memories.length - 1} inset={LEADING_INSET}>
+              <MemoryRow
+                memory={item}
+                onPress={() => router.push({ pathname: '/memories/[id]', params: { id: item.id } })}
+              />
+            </InsetCell>
           )}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No current memories mention them.</Text>
+            <EmptyState compact icon={Brain01Icon} title="No memories" message="No current memories mention them." />
           }
           refreshControl={
             <RefreshControl
@@ -159,7 +192,7 @@ export default function PersonScreen() {
                 setIsRefreshing(true);
                 void load().finally(() => setIsRefreshing(false));
               }}
-              tintColor={Colors.primary}
+              tintColor={Colors.systemGray}
             />
           }
         />
@@ -198,37 +231,6 @@ export default function PersonScreen() {
         </>
       ) : null}
     </SafeAreaView>
-  );
-}
-
-function Sheet({
-  visible,
-  title,
-  onClose,
-  children,
-}: {
-  visible: boolean;
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.overlay}>
-          <TouchableWithoutFeedback onPress={onClose}>
-            <View style={styles.backdrop} />
-          </TouchableWithoutFeedback>
-          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-            <Text style={styles.sheetTitle}>{title}</Text>
-            {children}
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
   );
 }
 
@@ -272,36 +274,41 @@ function RenameSheet({
   };
 
   return (
-    <Sheet visible={visible} title="Rename" onClose={onClose}>
-      <TextInput
-        style={[styles.input, error && styles.inputError]}
-        value={draft}
-        onChangeText={(text) => {
-          setDraft(text);
-          setError(null);
-        }}
-        maxLength={NAME_MAX_LENGTH}
-        autoFocus={Platform.OS !== 'web'}
-        returnKeyType="done"
-        onSubmitEditing={save}
-        accessibilityLabel="Name"
-      />
-      <Text style={error ? styles.errorText : styles.hintText}>
-        {error ?? 'The old name keeps working when you mention it in chat.'}
-      </Text>
-      <View style={styles.sheetActions}>
-        <TouchableOpacity style={styles.cancelBtn} onPress={onClose} disabled={isSaving}>
-          <Text style={styles.cancelText}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.saveBtn} onPress={save} disabled={isSaving}>
-          {isSaving ? (
-            <ActivityIndicator size="small" color={Colors.white} />
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="Rename"
+      leftAction={{ label: 'Cancel', onPress: onClose, disabled: isSaving }}
+      rightAction={{ label: 'Save', onPress: save, loading: isSaving }}>
+      <ListSection
+        footer={
+          error ? (
+            <AppText variant="footnote" color="destructive">
+              {error}
+            </AppText>
           ) : (
-            <Text style={styles.saveText}>Save</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </Sheet>
+            'The old name keeps working when you mention it in chat.'
+          )
+        }>
+        <TextInput
+          style={styles.input}
+          value={draft}
+          onChangeText={(text) => {
+            setDraft(text);
+            setError(null);
+          }}
+          placeholder="Name"
+          placeholderTextColor={Colors.placeholder}
+          selectionColor={Colors.tint}
+          clearButtonMode="while-editing"
+          maxLength={NAME_MAX_LENGTH}
+          autoFocus={Platform.OS !== 'web'}
+          returnKeyType="done"
+          onSubmitEditing={save}
+          accessibilityLabel="Name"
+        />
+      </ListSection>
+    </BottomSheet>
   );
 }
 
@@ -337,19 +344,25 @@ function MergeSheet({
   }, [visible, person.id, person.entity_type]);
 
   return (
-    <Sheet visible={visible} title={`Who else is ${person.name}?`} onClose={onClose}>
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="Same person as…"
+      leftAction={{ label: 'Cancel', onPress: onClose }}
+      scrollable>
       {others === null || isMerging ? (
-        <ActivityIndicator style={styles.spinner} color={Colors.primary} />
+        <ActivityIndicator style={styles.spinner} color={Colors.systemGray} />
       ) : others.length === 0 ? (
-        <Text style={styles.hintText}>There is nobody else to merge with.</Text>
+        <EmptyState compact icon={UserGroupIcon} title="Nobody else to merge with" />
       ) : (
-        <FlatList
-          style={styles.mergeList}
-          data={others}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.mergeRow}
+        <ListSection header={`Who else is ${person.name}?`}>
+          {others.map((item) => (
+            <ListRow
+              key={item.id}
+              leading={<EntityAvatar type={item.entity_type} name={item.name} />}
+              title={item.name}
+              subtitle={item.memory_count === 1 ? '1 memory' : `${item.memory_count} memories`}
+              accessory="none"
               onPress={async () => {
                 setIsMerging(true);
                 try {
@@ -360,208 +373,35 @@ function MergeSheet({
                   setIsMerging(false);
                 }
               }}
-              activeOpacity={0.7}
-              accessibilityRole="button">
-              <Text style={styles.mergeName}>{item.name}</Text>
-              <Text style={styles.meta}>
-                {item.memory_count === 1 ? '1 memory' : `${item.memory_count} memories`}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
+            />
+          ))}
+        </ListSection>
       )}
-      <TouchableOpacity style={[styles.cancelBtn, styles.closeFull]} onPress={onClose}>
-        <Text style={styles.cancelText}>Close</Text>
-      </TouchableOpacity>
-    </Sheet>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
-  },
-  flex: {
-    flex: 1,
+    backgroundColor: Colors.groupedBackground,
   },
   spinner: {
     marginVertical: 24,
   },
   centered: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    paddingBottom: 60,
   },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    textAlign: 'center',
-  },
-  emptyText: {
-    marginTop: 6,
-    fontSize: 13.5,
-    color: Colors.textSecondary,
-  },
-  retryButton: {
-    marginTop: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 18,
-    backgroundColor: Colors.primarySubtle,
-  },
-  retryText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  card: {
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  name: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    letterSpacing: -0.3,
-  },
-  meta: {
-    marginTop: 4,
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 14,
-  },
-  actionButton: {
-    height: 38,
-    paddingHorizontal: 14,
-    borderRadius: 19,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionText: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  sectionTitle: {
-    marginTop: 22,
-    marginBottom: 4,
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.iconMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: Colors.borderLight,
-  },
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: Colors.overlay,
-  },
-  sheet: {
-    maxHeight: '80%',
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 18,
-    paddingHorizontal: 20,
-  },
-  sheetTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    marginBottom: 12,
-  },
+  // A single-line field takes the body size without its line height, which would push the
+  // text off center on iOS.
   input: {
-    backgroundColor: Colors.surfaceInput,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: Colors.iconDark,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
-  },
-  inputError: {
-    borderColor: Colors.error,
-  },
-  hintText: {
-    marginTop: 6,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Colors.textSecondary,
-  },
-  errorText: {
-    marginTop: 6,
-    fontSize: 12.5,
-    color: Colors.error,
-  },
-  sheetActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
-  },
-  cancelBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeFull: {
-    flex: 0,
-    marginTop: 12,
-  },
-  cancelText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  saveBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.white,
-  },
-  mergeList: {
-    maxHeight: 360,
-  },
-  mergeRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  mergeName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
+    fontSize: Typography.body.fontSize,
+    letterSpacing: Typography.body.letterSpacing,
+    height: 48,
+    paddingHorizontal: 16,
+    paddingVertical: 0,
+    color: Colors.label,
   },
 });

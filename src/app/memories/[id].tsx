@@ -7,40 +7,67 @@
  * corrects or edits it, marks it as wrong (or restores it), or deletes it.
  *
  * Correcting the text makes a new version, so the screen moves to the new memory.
+ *
+ * Laid out as an iOS detail screen: a large title, the memory in a card with its actions,
+ * then inset-grouped sections, and the destructive rows in a section of their own at the
+ * end.
  */
 
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, RefreshControl, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { LockIcon } from '@hugeicons/core-free-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScreenHeader } from '@/components/common/ScreenHeader';
+import {
+  AlertCircleIcon,
+  Brain01Icon,
+  LockIcon,
+  Message01Icon,
+  PencilEdit02Icon,
+} from '@hugeicons/core-free-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  AppText,
+  Button,
+  Card,
+  EmptyState,
+  IconTile,
+  LargeTitle,
+  ListRow,
+  ListSection,
+  ScreenHeader,
+  useScrollY,
+} from '@/components/ui';
 import { MemoryEditorModal, type MemoryDraft } from '@/components/memories/MemoryEditorModal';
+import { CellPressable, EntityAvatar, memoryKind } from '@/components/memories/MemoryRow';
 import { Colors } from '@/constants/colors';
+import { Radius, ScreenMargin } from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { useRequireSession } from '@/hooks/useRequireSession';
 import { ApiError, getErrorMessage, isAbortError } from '@/lib/api/client';
 import { changeMemoryStatus, deleteMemory, getMemory, updateMemory } from '@/lib/api/memories';
-import type { MemoryDetail, UpdateMemoryBody } from '@/lib/api/types';
+import type { MemoryDetail, MemorySource, MemoryStatus, UpdateMemoryBody } from '@/lib/api/types';
 import { confirmAsync } from '@/lib/dialogs';
 import { formatRelativeTime } from '@/lib/formatTime';
+import { haptic } from '@/lib/haptics';
 import { historyText, memoryStatusLabel, memoryTypeLabel } from '@/lib/memories';
 import { openChatThread } from '@/lib/navigation';
 
 type Action = 'accept' | 'retract' | 'restore' | 'delete';
 
+// The status tag: a soft wash of the status color behind its label.
+const STATUS_COLORS: Record<MemoryStatus, { background: string; foreground: string }> = {
+  proposed: { background: Colors.tintFill, foreground: Colors.tint },
+  active: { background: Colors.successLight, foreground: Colors.systemGreen },
+  superseded: { background: Colors.tertiaryFill, foreground: Colors.secondaryLabel },
+  retracted: { background: Colors.errorLight, foreground: Colors.systemRed },
+};
+
 export default function MemoryDetailScreen() {
   const hasSession = useRequireSession();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrollY();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [memory, setMemory] = useState<MemoryDetail | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
@@ -149,33 +176,40 @@ export default function MemoryDetailScreen() {
     return <View style={styles.safeArea} />;
   }
 
+  const isReady = status !== 'loading' && status !== 'missing' && status !== 'error' && memory;
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <ScreenHeader title="Memory" fallbackHref="/memories" />
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      {/* The bar shows its small title at once until there is a large one to scroll away. */}
+      <ScreenHeader title="Memory" fallbackHref="/memories" scrollY={isReady ? scrollY : undefined} />
 
       {status === 'loading' ? (
-        <ActivityIndicator style={styles.spinner} color={Colors.primary} />
+        <ActivityIndicator style={styles.spinner} color={Colors.systemGray} />
       ) : status === 'missing' ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>This memory no longer exists</Text>
-          <Text style={styles.emptyText}>It may have been deleted.</Text>
+          <EmptyState
+            icon={Brain01Icon}
+            title="This memory no longer exists"
+            message="It may have been deleted."
+          />
         </View>
       ) : status === 'error' || !memory ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>{errorMessage}</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={() => {
+          <EmptyState
+            icon={AlertCircleIcon}
+            title={errorMessage}
+            actionTitle="Try again"
+            onAction={() => {
               setStatus('loading');
               void load();
             }}
-            activeOpacity={0.75}>
-            <Text style={styles.retryText}>Try again</Text>
-          </TouchableOpacity>
+          />
         </View>
       ) : (
-        <ScrollView
-          contentContainerStyle={styles.content}
+        <Animated.ScrollView
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
           refreshControl={
             <RefreshControl
               refreshing={isRefreshing}
@@ -183,112 +217,118 @@ export default function MemoryDetailScreen() {
                 setIsRefreshing(true);
                 void load().finally(() => setIsRefreshing(false));
               }}
-              tintColor={Colors.primary}
+              tintColor={Colors.systemGray}
             />
           }>
+          <LargeTitle title="Memory" />
+
           <MemorySummary
             memory={memory}
             busy={busy}
             onAccept={() => handleStatus('accept')}
-            onRetract={() => handleStatus('retract')}
             onRestore={() => handleStatus('restore')}
             onEdit={() => setIsEditing(true)}
-            onDelete={handleDelete}
             onOpenNewer={(newerId) =>
               router.replace({ pathname: '/memories/[id]', params: { id: newerId } })
             }
           />
 
-          <Text style={styles.sectionTitle}>Where this came from</Text>
-          {memory.sources.length === 0 ? (
-            <Text style={styles.noteText}>
-              {memory.created_by === 'user'
-                ? 'You wrote this memory yourself.'
-                : 'The message it came from is no longer available.'}
-            </Text>
-          ) : (
-            memory.sources.map((source) => (
-              <View key={source.raw_message_id} style={styles.sourceCard}>
-                {source.evidence_text ? (
-                  <Text style={styles.quote}>“{source.evidence_text}”</Text>
-                ) : null}
-                <Text style={styles.sourceText} numberOfLines={6}>
-                  {source.content}
-                </Text>
-                <View style={styles.sourceFooter}>
-                  <Text style={styles.sourceMeta}>
-                    {source.sent_at ? `You said this ${formatRelativeTime(source.sent_at)}` : ''}
-                  </Text>
-                  {source.thread_id ? (
-                    <TouchableOpacity
-                      onPress={() => openChatThread(source.thread_id!)}
-                      activeOpacity={0.7}>
-                      <Text style={styles.linkText}>Open the chat</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-              </View>
-            ))
-          )}
+          <ListSection header="Where this came from">
+            {memory.sources.length === 0 ? (
+              <ListRow
+                icon={memory.created_by === 'user' ? PencilEdit02Icon : Message01Icon}
+                iconColor={Colors.systemGray}
+                title={
+                  memory.created_by === 'user'
+                    ? 'You wrote this memory yourself.'
+                    : 'The message it came from is no longer available.'
+                }
+                numberOfLines={3}
+              />
+            ) : (
+              memory.sources.map((source) => <SourceCell key={source.raw_message_id} source={source} />)
+            )}
+          </ListSection>
 
           {memory.entities.length ? (
-            <>
-              <Text style={styles.sectionTitle}>Mentions</Text>
-              <View style={styles.chipRow}>
-                {memory.entities.map((entity) => (
-                  <TouchableOpacity
-                    key={entity.entity_id}
-                    style={styles.chip}
-                    onPress={() =>
-                      router.push({ pathname: '/people/[id]', params: { id: entity.entity_id } })
-                    }
-                    activeOpacity={0.75}
-                    accessibilityRole="button">
-                    <Text style={styles.chipText}>{entity.canonical_name}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </>
+            <ListSection header="Mentions">
+              {memory.entities.map((entity) => (
+                <ListRow
+                  key={entity.entity_id}
+                  leading={<EntityAvatar type={entity.entity_type} name={entity.canonical_name} />}
+                  title={entity.canonical_name}
+                  onPress={() =>
+                    router.push({ pathname: '/people/[id]', params: { id: entity.entity_id } })
+                  }
+                />
+              ))}
+            </ListSection>
           ) : null}
 
           {memory.replaced.length ? (
-            <>
-              <Text style={styles.sectionTitle}>Earlier versions</Text>
+            <ListSection header="Earlier versions">
               {memory.replaced.map((version) => (
-                <TouchableOpacity
+                <ListRow
                   key={version.id}
-                  style={styles.versionRow}
+                  title={version.content}
+                  subtitle={formatRelativeTime(version.created_at)}
+                  numberOfLines={3}
                   onPress={() =>
                     router.push({ pathname: '/memories/[id]', params: { id: version.id } })
                   }
-                  activeOpacity={0.7}
-                  accessibilityRole="button">
-                  <Text style={styles.versionText}>{version.content}</Text>
-                  <Text style={styles.sourceMeta}>{formatRelativeTime(version.created_at)}</Text>
-                </TouchableOpacity>
+                />
               ))}
-            </>
+            </ListSection>
           ) : null}
 
-          <Text style={styles.sectionTitle}>History</Text>
-          <View style={styles.historyRow}>
-            <View style={styles.historyDot} />
-            <Text style={styles.historyText}>
-              {memory.created_by === 'user' ? 'Written' : 'Saved from your chat'}{' '}
-              {formatRelativeTime(memory.created_at)}
-            </Text>
-          </View>
-          {memory.history
-            .filter((event) => event.action !== 'created')
-            .map((event) => (
-              <View key={event.id} style={styles.historyRow}>
-                <View style={styles.historyDot} />
-                <Text style={styles.historyText}>
-                  {historyText(event)} · {formatRelativeTime(event.created_at)}
-                </Text>
-              </View>
-            ))}
-        </ScrollView>
+          <ListSection header="History">
+            <ListRow
+              title={memory.created_by === 'user' ? 'Written' : 'Saved from your chat'}
+              subtitle={formatRelativeTime(memory.created_at)}
+            />
+            {memory.history
+              .filter((event) => event.action !== 'created')
+              .map((event) => (
+                <ListRow
+                  key={event.id}
+                  title={historyText(event)}
+                  subtitle={formatRelativeTime(event.created_at)}
+                  numberOfLines={2}
+                />
+              ))}
+          </ListSection>
+
+          <ListSection
+            footer={
+              memory.status === 'proposed' || memory.status === 'active'
+                ? 'Cooper stops using a memory marked as wrong. You can restore it later.'
+                : undefined
+            }>
+            {memory.status === 'proposed' || memory.status === 'active' ? (
+              <ListRow
+                title="Mark as wrong"
+                destructive
+                disabled={busy !== null && busy !== 'retract'}
+                accessory={busy === 'retract' ? <ActivityIndicator color={Colors.systemGray} /> : 'none'}
+                onPress={
+                  busy === 'retract'
+                    ? undefined
+                    : () => {
+                        haptic.light();
+                        void handleStatus('retract');
+                      }
+                }
+              />
+            ) : null}
+            <ListRow
+              title="Delete memory"
+              destructive
+              disabled={busy !== null && busy !== 'delete'}
+              accessory={busy === 'delete' ? <ActivityIndicator color={Colors.systemGray} /> : 'none'}
+              onPress={busy === 'delete' ? undefined : handleDelete}
+            />
+          </ListSection>
+        </Animated.ScrollView>
       )}
 
       {memory ? (
@@ -314,259 +354,193 @@ function MemorySummary({
   memory,
   busy,
   onAccept,
-  onRetract,
   onRestore,
   onEdit,
-  onDelete,
   onOpenNewer,
 }: {
   memory: MemoryDetail;
   busy: Action | null;
   onAccept: () => void;
-  onRetract: () => void;
   onRestore: () => void;
   onEdit: () => void;
-  onDelete: () => void;
   onOpenNewer: (newerId: string) => void;
 }) {
   const isLive = memory.status === 'proposed' || memory.status === 'active';
+  const kind = memoryKind(memory.memory_type);
+  const tag = STATUS_COLORS[memory.status];
+  const note =
+    memory.status === 'proposed'
+      ? "Cooper saved this from your chat. Accept it if it's right."
+      : memory.status === 'retracted'
+        ? "You marked this as wrong, so Cooper doesn't use it."
+        : memory.status === 'superseded'
+          ? 'A newer memory replaced this one.'
+          : null;
+  // Keep the pressed button showing its spinner at full strength; dim only the others.
+  const dimmed = (action: Action) => busy !== null && busy !== action;
+
   return (
-    <View style={styles.card}>
-      <View style={styles.badgeRow}>
-        <View style={[styles.statusPill, styles[`status_${memory.status}`]]}>
-          <Text style={styles.statusText}>{memoryStatusLabel(memory.status)}</Text>
+    <Card style={styles.summary}>
+      <View style={styles.summaryTop}>
+        <IconTile icon={kind.icon} color={kind.color} size={26} />
+        <AppText variant="subheadline" weight="600" style={styles.flexShrink} numberOfLines={1}>
+          {memoryTypeLabel(memory.memory_type)}
+        </AppText>
+        <View style={[styles.tag, { backgroundColor: tag.background }]}>
+          <AppText variant="caption1" weight="600" color={tag.foreground}>
+            {memoryStatusLabel(memory.status)}
+          </AppText>
         </View>
-        <Text style={styles.badgeText}>{memoryTypeLabel(memory.memory_type)}</Text>
         {memory.sensitive ? (
-          <View style={styles.sensitiveBadge}>
-            <HugeiconsIcon icon={LockIcon} size={12} color={Colors.iconDark} />
-            <Text style={styles.badgeText}>Sensitive</Text>
+          <View style={styles.sensitive}>
+            <HugeiconsIcon icon={LockIcon} size={12} color={Colors.secondaryLabel} strokeWidth={2} />
+            <AppText variant="caption1" weight="600" color="secondary">
+              Sensitive
+            </AppText>
           </View>
         ) : null}
       </View>
-      <Text style={styles.memoryText}>{memory.content}</Text>
+
+      <AppText variant="title3" selectable style={styles.memoryText}>
+        {memory.content}
+      </AppText>
+
       {memory.sensitive ? (
-        <Text style={styles.noteText}>
+        <AppText variant="footnote" color="secondary" style={styles.note}>
           Only you see this. Cooper never uses sensitive memories.
-        </Text>
+        </AppText>
       ) : null}
-      {memory.status === 'proposed' ? (
-        <Text style={styles.noteText}>
-          Cooper saved this from your chat. Accept it if it&apos;s right.
-        </Text>
+      {note ? (
+        <AppText variant="footnote" color="secondary" style={styles.note}>
+          {note}
+        </AppText>
       ) : null}
-      {memory.status === 'retracted' ? (
-        <Text style={styles.noteText}>
-          You marked this as wrong, so Cooper doesn&apos;t use it.
-        </Text>
+      {memory.status === 'superseded' && memory.replaced_by_id ? (
+        <Button
+          title="See the current one"
+          variant="plain"
+          size="small"
+          onPress={() => onOpenNewer(memory.replaced_by_id!)}
+          containerStyle={styles.linkButton}
+        />
       ) : null}
-      {memory.status === 'superseded' ? (
-        <View>
-          <Text style={styles.noteText}>A newer memory replaced this one.</Text>
-          {memory.replaced_by_id ? (
-            <TouchableOpacity
-              onPress={() => onOpenNewer(memory.replaced_by_id!)}
-              activeOpacity={0.7}>
-              <Text style={styles.linkText}>See the current one</Text>
-            </TouchableOpacity>
+
+      {isLive || memory.status === 'retracted' ? (
+        <View style={styles.actionRow}>
+          {memory.status === 'proposed' ? (
+            <Button
+              title="Accept"
+              variant="filled"
+              size="small"
+              haptic="success"
+              loading={busy === 'accept'}
+              disabled={dimmed('accept')}
+              onPress={onAccept}
+            />
+          ) : null}
+          {isLive ? (
+            <Button title="Edit" variant="gray" size="small" disabled={busy !== null} onPress={onEdit} />
+          ) : null}
+          {memory.status === 'retracted' ? (
+            <Button
+              title="Restore"
+              variant="tinted"
+              size="small"
+              loading={busy === 'restore'}
+              disabled={dimmed('restore')}
+              onPress={onRestore}
+            />
           ) : null}
         </View>
       ) : null}
-
-      <View style={styles.actionRow}>
-        {memory.status === 'proposed' ? (
-          <ActionButton
-            label="Accept"
-            primary
-            busy={busy === 'accept'}
-            disabled={busy !== null}
-            onPress={onAccept}
-          />
-        ) : null}
-        {isLive ? <ActionButton label="Edit" disabled={busy !== null} onPress={onEdit} /> : null}
-        {isLive ? (
-          <ActionButton
-            label="Wrong"
-            busy={busy === 'retract'}
-            disabled={busy !== null}
-            onPress={onRetract}
-          />
-        ) : null}
-        {memory.status === 'retracted' ? (
-          <ActionButton
-            label="Restore"
-            primary
-            busy={busy === 'restore'}
-            disabled={busy !== null}
-            onPress={onRestore}
-          />
-        ) : null}
-        <ActionButton
-          label="Delete"
-          danger
-          busy={busy === 'delete'}
-          disabled={busy !== null}
-          onPress={onDelete}
-        />
-      </View>
-    </View>
+    </Card>
   );
 }
 
-function ActionButton({
-  label,
-  onPress,
-  primary = false,
-  danger = false,
-  busy = false,
-  disabled = false,
-}: {
-  label: string;
-  onPress: () => void;
-  primary?: boolean;
-  danger?: boolean;
-  busy?: boolean;
-  disabled?: boolean;
-}) {
+/** A message the memory rests on: the words quoted, the message, and when it was said. */
+function SourceCell({ source }: { source: MemorySource }) {
+  const threadId = source.thread_id;
+  const body = (
+    <>
+      {source.evidence_text ? (
+        <AppText variant="body" weight="600">
+          “{source.evidence_text}”
+        </AppText>
+      ) : null}
+      <AppText
+        variant="subheadline"
+        color={source.evidence_text ? 'secondary' : 'primary'}
+        numberOfLines={6}>
+        {source.content}
+      </AppText>
+      <View style={styles.sourceFooter}>
+        <AppText variant="footnote" color="secondary" style={styles.flexShrink}>
+          {source.sent_at ? `You said this ${formatRelativeTime(source.sent_at)}` : ''}
+        </AppText>
+        {threadId ? (
+          <AppText variant="footnote" weight="600" color="tint">
+            Open the chat
+          </AppText>
+        ) : null}
+      </View>
+    </>
+  );
+  if (!threadId) {
+    return <View style={styles.sourceCell}>{body}</View>;
+  }
   return (
-    <TouchableOpacity
-      style={[
-        styles.actionButton,
-        primary && styles.actionPrimary,
-        danger && styles.actionDanger,
-        disabled && !busy && styles.actionDisabled,
-      ]}
-      onPress={onPress}
-      disabled={disabled}
-      activeOpacity={0.8}
-      accessibilityRole="button"
-      accessibilityState={{ disabled, busy }}>
-      {busy ? (
-        <ActivityIndicator size="small" color={primary ? Colors.white : Colors.iconDark} />
-      ) : (
-        <Text
-          style={[
-            styles.actionText,
-            primary && styles.actionTextPrimary,
-            danger && styles.actionTextDanger,
-          ]}>
-          {label}
-        </Text>
-      )}
-    </TouchableOpacity>
+    <CellPressable onPress={() => openChatThread(threadId)} style={styles.sourceCell}>
+      {body}
+    </CellPressable>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.groupedBackground,
+  },
+  flexShrink: {
+    flexShrink: 1,
   },
   spinner: {
     marginVertical: 24,
   },
   centered: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    paddingBottom: 60,
   },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    textAlign: 'center',
+  summary: {
+    marginHorizontal: ScreenMargin,
+    marginBottom: 28,
   },
-  emptyText: {
-    marginTop: 6,
-    fontSize: 13,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 18,
-    backgroundColor: Colors.primarySubtle,
-  },
-  retryText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  card: {
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.white,
-  },
-  badgeRow: {
+  summaryTop: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
   },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
+  tag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.pill,
   },
-  status_proposed: {
-    backgroundColor: Colors.primarySubtle,
-  },
-  status_active: {
-    backgroundColor: Colors.successLight,
-  },
-  status_superseded: {
-    backgroundColor: Colors.surface,
-  },
-  status_retracted: {
-    backgroundColor: Colors.errorLight,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  badgeText: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  sensitiveBadge: {
+  sensitive: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    backgroundColor: Colors.warningLight,
   },
   memoryText: {
     marginTop: 12,
-    fontSize: 18,
-    lineHeight: 25,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
   },
-  noteText: {
+  note: {
     marginTop: 8,
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: Colors.textSecondary,
   },
-  linkText: {
-    marginTop: 6,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary,
+  linkButton: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    marginLeft: -4,
   },
   actionRow: {
     flexDirection: 'row',
@@ -574,117 +548,16 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 16,
   },
-  actionButton: {
-    minWidth: 76,
-    height: 38,
-    paddingHorizontal: 14,
-    borderRadius: 19,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionPrimary: {
-    backgroundColor: Colors.primary,
-  },
-  actionDanger: {
-    backgroundColor: Colors.errorLight,
-  },
-  actionDisabled: {
-    opacity: 0.45,
-  },
-  actionText: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  actionTextPrimary: {
-    color: Colors.white,
-  },
-  actionTextDanger: {
-    color: Colors.error,
-  },
-  sectionTitle: {
-    marginTop: 22,
-    marginBottom: 8,
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.iconMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  sourceCard: {
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: Colors.surface,
-    marginBottom: 8,
-  },
-  quote: {
-    fontSize: 14.5,
-    lineHeight: 20,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    marginBottom: 6,
-  },
-  sourceText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.textPrimary,
+  sourceCell: {
+    gap: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   sourceFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 6,
     gap: 8,
-  },
-  sourceMeta: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 14,
-    backgroundColor: Colors.primarySubtle,
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  versionRow: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  versionText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.textSecondary,
-    textDecorationLine: 'line-through',
-  },
-  historyRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingVertical: 6,
-  },
-  historyDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 6,
-    backgroundColor: Colors.border,
-  },
-  historyText: {
-    flex: 1,
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: Colors.iconDark,
+    marginTop: 2,
   },
 });

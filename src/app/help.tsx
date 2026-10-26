@@ -2,30 +2,31 @@
  * Help & Feedback Screen ('/help')
  *
  * A short FAQ and a feedback form that sends the message to the team (`POST /feedback`)
- * with the platform and app version.
+ * with the platform and app version. A pushed screen with a large title over
+ * inset-grouped sections; Send is the one filled button.
  */
 
-import React, { useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { useState } from 'react';
+import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import Constants from 'expo-constants';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScreenHeader } from '@/components/common/ScreenHeader';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  AppText,
+  Button,
+  LargeTitle,
+  ListSection,
+  ScreenHeader,
+  useScrollY,
+} from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { ScreenMargin, Typography } from '@/constants/theme';
 import { useAgentProfile } from '@/context/AgentProfileContext';
 import { showToast } from '@/context/ToastContext';
 import { getErrorMessage } from '@/lib/api/client';
 import { sendFeedback } from '@/lib/api/me';
 import type { DevicePlatform } from '@/lib/api/types';
+import { haptic } from '@/lib/haptics';
 
 const FEEDBACK_MAX_LENGTH = 4000;
 
@@ -62,8 +63,10 @@ function buildFaq(agentName: string): FaqEntry[] {
       question: 'Your data and deleting your account',
       answer:
         `Your chats, schedules, and app connections are stored so ${agentName} can use them. ` +
-        'Files you attach are read with your message and not kept. To remove everything, use ' +
-        'Delete account in Settings: it disconnects your apps and permanently deletes your data.',
+        'Files you attach in chat are read with your message and not kept; to keep one for ' +
+        `${agentName}, such as your resume, add it in Settings, Files & links (only its text ` +
+        'is stored, and deleting it removes it). To remove everything, use Delete account in ' +
+        'Settings: it disconnects your apps and permanently deletes your data.',
     },
   ];
 }
@@ -77,6 +80,8 @@ function getDevicePlatform(): DevicePlatform | undefined {
 
 export default function HelpScreen() {
   const { profile } = useAgentProfile();
+  const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrollY();
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
 
@@ -94,9 +99,11 @@ export default function HelpScreen() {
         app_version: Constants.expoConfig?.version,
       });
       setMessage('');
+      haptic.success();
       showToast('Thanks! Your feedback was sent.');
     } catch (error) {
       console.error('Failed to send feedback:', error);
+      haptic.error();
       showToast(getErrorMessage(error, 'Could not send your feedback'));
     } finally {
       setIsSending(false);
@@ -104,62 +111,66 @@ export default function HelpScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <ScreenHeader title="Help & Feedback" />
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScreenHeader title="Help & Feedback" scrollY={scrollY} />
 
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
+        <Animated.ScrollView
           style={styles.flex}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled">
-          <Text style={styles.sectionTitle}>Frequently asked</Text>
-          <View style={styles.groupCard}>
-            {buildFaq(profile.name).map((entry, index) => (
-              <View key={entry.question}>
-                {index > 0 && <View style={styles.rowDivider} />}
-                <View style={styles.faqItem}>
-                  <Text style={styles.faqQuestion}>{entry.question}</Text>
-                  <Text style={styles.faqAnswer}>{entry.answer}</Text>
-                </View>
+          contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          onScroll={onScroll}
+          scrollEventThrottle={16}>
+          <LargeTitle title="Help & Feedback" />
+
+          <ListSection header="Frequently asked">
+            {buildFaq(profile.name).map((entry) => (
+              <View key={entry.question} style={styles.faqItem}>
+                <AppText variant="headline">{entry.question}</AppText>
+                <AppText variant="subheadline" color="secondary">
+                  {entry.answer}
+                </AppText>
               </View>
             ))}
-          </View>
+          </ListSection>
 
-          <Text style={styles.sectionTitle}>Send feedback</Text>
-          <View style={styles.groupCard}>
-            <TextInput
-              style={styles.feedbackInput}
-              value={message}
-              onChangeText={setMessage}
-              placeholder="What's working, what isn't, or what you'd like next..."
-              placeholderTextColor={Colors.iconMuted}
-              multiline
-              maxLength={FEEDBACK_MAX_LENGTH}
-              textAlignVertical="top"
-              editable={!isSending}
-              accessibilityLabel="Feedback"
-            />
-            <View style={styles.feedbackFooter}>
-              <Text style={styles.counterText}>
+          <ListSection
+            header="Send feedback"
+            footer="Your message goes to the team with your platform and app version.">
+            <View style={styles.feedbackCell}>
+              <TextInput
+                style={styles.feedbackInput}
+                value={message}
+                onChangeText={setMessage}
+                placeholder="What's working, what isn't, or what you'd like next..."
+                placeholderTextColor={Colors.placeholder}
+                selectionColor={Colors.tint}
+                multiline
+                maxLength={FEEDBACK_MAX_LENGTH}
+                textAlignVertical="top"
+                editable={!isSending}
+                accessibilityLabel="Feedback"
+              />
+              <AppText variant="caption1" color="tertiary" align="right">
                 {message.length.toLocaleString()} / {FEEDBACK_MAX_LENGTH.toLocaleString()}
-              </Text>
-              <TouchableOpacity
-                style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
-                onPress={handleSend}
-                disabled={!canSend}
-                activeOpacity={0.8}
-                accessibilityRole="button">
-                {isSending ? (
-                  <ActivityIndicator size="small" color={Colors.white} />
-                ) : (
-                  <Text style={styles.sendText}>Send</Text>
-                )}
-              </TouchableOpacity>
+              </AppText>
             </View>
-          </View>
-        </ScrollView>
+          </ListSection>
+
+          <Button
+            title="Send"
+            variant="filled"
+            size="large"
+            block
+            onPress={handleSend}
+            loading={isSending}
+            disabled={trimmed.length === 0}
+            containerStyle={styles.sendButton}
+          />
+        </Animated.ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -168,88 +179,31 @@ export default function HelpScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.groupedBackground,
   },
   flex: {
     flex: 1,
   },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  groupCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
-    overflow: 'hidden',
-    marginBottom: 24,
-  },
-  rowDivider: {
-    height: 1,
-    backgroundColor: Colors.borderLight,
-    marginHorizontal: 16,
-  },
   faqItem: {
-    paddingVertical: 14,
+    gap: 4,
     paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.secondaryGroupedBackground,
   },
-  faqQuestion: {
-    fontSize: 15.5,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
-  },
-  faqAnswer: {
-    marginTop: 5,
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.textSecondary,
+  feedbackCell: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+    gap: 6,
+    backgroundColor: Colors.secondaryGroupedBackground,
   },
   feedbackInput: {
+    ...Typography.body,
     minHeight: 140,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 14,
-    fontSize: 15,
-    lineHeight: 21,
-    color: Colors.iconDark,
+    padding: 0,
+    color: Colors.label,
   },
-  feedbackFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-  },
-  counterText: {
-    fontSize: 12,
-    color: Colors.iconMuted,
-  },
-  sendBtn: {
-    minWidth: 84,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-    backgroundColor: Colors.primary,
-  },
-  sendBtnDisabled: {
-    opacity: 0.5,
-  },
-  sendText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.white,
+  sendButton: {
+    marginHorizontal: ScreenMargin,
   },
 });

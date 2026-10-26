@@ -26,7 +26,7 @@ _Written 25 October 2026 from a full reading of the app and backend code. File r
 12. [Memories screen: review, correct, and manage](#12-memories-screen-review-correct-and-manage)
 13. [Search: memories and chats](#13-search-memories-and-chats)
 14. [People](#14-people)
-15. [Feed: activity and insights](#15-feed-activity-and-insights)
+15. [Feed: Today, this week, and scheduled results](#15-feed-today-this-week-and-scheduled-results)
 16. [New memory sources: WhatsApp, photos and PDFs, Google Calendar](#16-new-memory-sources-whatsapp-photos-and-pdfs-google-calendar)
 17. [Connected apps](#17-connected-apps)
 18. [Usage, limits, and cost](#18-usage-limits-and-cost)
@@ -134,11 +134,11 @@ Building is covered in [DEPLOYMENT.md §6](DEPLOYMENT.md#6-building-and-installi
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Header** (every tab) | Left: the drawer button (chats). Centre: Cooper's avatar and name; tap to customise. Right: "⋯" menu (customise; on Chat also Share, Clear, Delete)                   |
 | **Tab 1: Chat**        | The conversation: the main chat, or a side chat opened from the drawer                                                                                                |
-| **Tab 2: Feed**        | "For you" insights from your memories, and the results of scheduled tasks                                                                                             |
-| **Tab 3: Ideas**       | Four ready-made prompts that fill the chat box                                                                                                                        |
+| **Tab 2: Today**       | Next actions, promises, meetings, an idea to pick up, memories to confirm; then this week's insights and the results of scheduled tasks                    |
+| **Tab 3: Ideas**       | Your own ideas from your memories (Explore with Cooper), then four ready-made prompts that fill the chat box                                                          |
 | **Tab 4: Tasks**       | **To do** (open items, reminders, done this week) and **Schedules** (recurring tasks)                                                                                 |
-| **Tab 5: Settings**    | Today's usage and cost, cost history, Tools & Connections, Memories, Import a WhatsApp chat, Notifications, Help & Feedback, Export my data, Sign out, Delete account |
-| **Drawer**             | Main chat; side chats (open or delete); search side-chat titles; start a new side chat                                                                                |
+| **Tab 5: Settings**    | Today's usage and cost, cost history, Tools & Connections, Memories, Files & links, Import a WhatsApp chat, Notifications, Help & Feedback, Export my data, Sign out, Delete account |
+| **Drawer**             | Search and compose at the top; Main chat; side chats (the open one highlighted; touch and hold to delete); Settings. Opens from the header button or a swipe right anywhere on Chat |
 
 ---
 
@@ -228,8 +228,9 @@ Building is covered in [DEPLOYMENT.md §6](DEPLOYMENT.md#6-building-and-installi
   - reminder and daily brief (section 9).
 - **Markdown** renders headings, lists, tables, code and links (links open the browser).
 - **Drawer:**
+  - Opens from the header button, or by swiping right anywhere on Chat (as in ChatGPT); it follows the finger and covers 85% of the screen. Swipe left, tap the dimmed chat, or press Back to close it. Code blocks, tables and the file chips still scroll sideways.
   - Main chat; side chats newest first (up to 100); a search box that filters titles; and **compose** (a new side chat).
-  - A side chat is titled from its first message. The trash icon deletes a side chat after a confirm; memories saved from it are kept.
+  - A side chat is named from its first message at once (links become "LinkedIn post", polite openings go), then given a short generated name when its conversation is read for memories (no extra model call). Side chats you never wrote in aren't listed, and **compose** reuses an empty one. The trash icon deletes a side chat after a confirm; memories saved from it are kept.
 - **Header "⋯" on Chat:**
   - **Share Chat:** the whole transcript, up to 2,000 messages, as text.
   - **Clear Messages:** deletes every message after a confirm; memories are kept.
@@ -275,6 +276,7 @@ Cooper decides on its own when to use a tool, and the app shows the tool's label
 | Tool (label)                                                                        | Offered when                          | In chat | In scheduled runs                          | What it does                                                                                                                                                                                                                                                              |
 | ----------------------------------------------------------------------------------- | ------------------------------------- | ------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `search_memories` ("Checking your memories")                                        | Always                                | ✅      | ✅                                         | Searches your own memories by words, names and, with a Voyage key, meaning. Up to 10 results with the kind, date, whether you reviewed it, and your own words. **Sensitive memories are never returned.** No hit: Cooper is told to say it doesn't know rather than guess |
+| `read_document` / `search_documents` ("Reading your files" / "Searching your files") | Always                                | ✅      | ✅                                         | Reads one of your documents (My files) whole, `resume` for your resume, or finds passages in them by words. Used for job applications and questions about your work (section 16.4) |
 | `list_open_items` ("Checking your list")                                            | Always                                | ✅      | ✅                                         | Your to-dos by overdue, today, this week, later, no date; goals; reminders. Never sensitive items                                                                                                                                                                         |
 | `create_reminder` ("Setting a reminder")                                            | Always                                | ✅      | ❌                                         | Saves a to-do with a reminder time in your timezone. Must be in the future. No confirmation card, no extra prompt                                                                                                                                                         |
 | `update_open_item` ("Updating your list")                                           | Always                                | ✅      | ❌                                         | Done, drop, reopen, or snooze an item from the list                                                                                                                                                                                                                       |
@@ -417,11 +419,14 @@ Cooper decides on its own when to use a tool, and the app shows the tool's label
 
 **How it works** (`GET /me/life`; `app/services/life_state.py`)
 
-- **Sections**, computed in your timezone:
-  - **Overdue**, **Today**, **This week** (next 7 days), **Later**, **No date**;
+- **Sections**, computed in your timezone, most actionable first (ADR-048):
+  - **Now**: **Overdue**, **Today**, **This week** (next 7 days), then pending **Reminders**. Always open;
+  - **From your imported chat** (folded): open items of a WhatsApp import you haven't looked at, each with **Keep** (accept; it joins the list), **Done**, **Drop**. They are never Overdue or in the brief until kept;
   - **Goals** (goals and projects);
-  - **Reminders** (pending);
+  - **Open questions** (folded): open loops, which have nothing to tick off;
+  - **Backlog** (folded): Later and No date;
   - **Done this week**.
+- Rows show a short **title** (the extractor's, or the content without "Task as written:"-style phrasing).
 - **"Gone quiet"** marks items untouched for 14 days and not due in the future.
 - **Sensitive** items appear here, because this is you looking. They are never shown to Cooper or put in the brief.
 
@@ -534,60 +539,73 @@ Cooper decides on its own when to use a tool, and the app shows the tool's label
 
 This is the "memory layer": it turns what you say into structured, source-backed memories that Cooper can use later.
 
-**Which messages are captured** (`app/services/memory_capture.py`)
+**When and what is captured** (`app/services/memory_capture.py`, ADR-048)
 
-- Only **your** messages, never Cooper's.
-- At least **3 words**. "hi there" is skipped.
-- Not when **Save chats as memories** is off (Memories → All). The server switch `MEMORY_CAPTURE_ENABLED` turns it off for everyone.
-- Messages sent while capture is off are never captured later.
+- A chat is read **once it has been quiet for 5 minutes** (`MEMORY_CAPTURE_QUIET_SECONDS`): everything you wrote since the last capture becomes **one unit**, read in one model call.
+- Only **your** words are evidence, never Cooper's. The Cooper message each line answered travels with it as **context**, so "yes", "the second one" or "Friday works" make sense; Cooper's words are never quoted or turned into facts.
+- Lines that can't carry a memory alone (under 3 words, thanks, approvals like "yes, send it") come along as context only. A line you **already sent in the last 24 hours** (a resend) is dropped. A stretch with nothing else costs **no model call**.
+- Not when **Save chats as memories** is off (Memories → All), or `MEMORY_CAPTURE_ENABLED` is off for everyone. Messages sent while it is off are never captured later.
 
 **The pipeline**
 
 ```
-your message ─► evidence (stored as sent, never edited)
-             ─► a processing run (queued → running → succeeded / needs review / failed)
-             ─► Claude reads it and returns structured memories with exact quotes
-             ─► people, places and things are matched to ones you already have
-             ─► memories saved as "proposed" (To review), linked to the quote and the chat
-             ─► embedded for search by meaning (within about 15 s, if Voyage is set)
+quiet chat ─► evidence (your lines as sent, never edited; Cooper's replies as context)
+           ─► a processing run (queued → running → succeeded / needs review / failed)
+           ─► Claude reads it as a conversation and returns memories with exact quotes,
+              a short title for each, and a name for the chat
+           ─► people, places and things are matched to ones you already have
+           ─► a memory you already have gets the new evidence ("said again"), not a duplicate
+           ─► confident, non-sensitive memories in your own words are accepted on their own;
+              the rest wait in To review
+           ─► embedded for search by meaning (within about 15 s, if Voyage is set)
 ```
 
 **The pipeline step by step** (`app/services/processing/*`)
 
-1. **Evidence.** Your message is stored as a `raw_message`, which a database trigger forbids anyone to edit. Capturing the same message twice is impossible: it is keyed by the chat message id.
-2. **Extraction.** Claude (Haiku here) reads it in your timezone, so "tomorrow" means your tomorrow, and returns:
+1. **Evidence.** Each of your lines is stored as a `raw_message`, which a database trigger forbids anyone to edit. Capturing the same message twice is impossible: it is keyed by the chat message id.
+2. **Extraction** (prompt 3). Claude (Haiku here) reads the unit in your timezone, so "tomorrow" means your tomorrow. In a conversation, requests and questions to Cooper, greetings and approvals are **not** memories, and "nothing to remember" is the normal answer. It returns:
    - a **disposition**: extract, context, or abstain;
    - **memories**, each with:
      - one of 16 kinds (fact, event, preference, intention, task, commitment, goal, project, decision, idea, open loop, plan, note, reflection, resource, money note);
-     - the content;
+     - the content, and a short **title** for lists ("Call Priya about rent");
      - a state (open, planned, done);
      - a confidence;
      - a **sensitivity** (health, emotions and private matters are marked sensitive);
      - **exact quotes** as evidence;
      - dates;
      - money details;
-   - **mentions** of people, places and things.
+   - **mentions** of people, places and things;
+   - a **conversation title**, which names a side chat once (until then it's named from its first message).
 
    The output is checked against a strict schema. Quotes must really appear in the message. Arithmetic like "900/3" is recomputed in code.
 
 3. **Resolution.** Each mention is matched to your existing people and things by exact normalized name, within your own data only. One match links it; several leave it "ambiguous"; none creates a new person or thing.
-4. **Saving.** Every memory is saved as **proposed** (To review). Task-like memories with a resolved date get a due date, so they appear in To do. A message with nothing to remember becomes a **held-back** item in To review.
-5. **Reliability.**
+4. **Saving.**
+   - **Said again?** If you already have a live memory of the same kind with the same link, or nearly the same words, it gets the new evidence and a "You said it again" history line instead of a duplicate. Money notes are never merged (two "103 auto" notes can be two rides).
+   - **Accepted on its own** when Cooper is sure: confidence 0.8+, not sensitive, your own words. History says "Saved on its own: Cooper was sure". Otherwise it waits in **To review**. `MEMORY_AUTO_ACCEPT_ENABLED` turns this off.
+   - Task-like memories with a resolved date get a due date, so they appear in To do.
+   - A conversation with nothing to remember just succeeds; it is **not** held back for review. (Notes and imports still are.)
+5. **In the chat.** Under your message: "Remembered: <title> · Undo" (or "To review: …"). Undo marks it wrong; Cooper never uses it. These appear on the next load of the chat after capture.
+6. **Reliability.**
    - **Transient failures** (timeouts, rate limits, 5xx) are retried up to 3 times, after 30 s and then 60 s. A run whose worker vanished is released after 10 minutes.
    - **Permanent failures** end as `failed` and are **not shown anywhere in the app** (M1): no API credit, a refusal, an over-long answer.
 
-**Cost $:** one Claude extraction per captured message, about $0.0005–0.0013 on Haiku. It is not counted against the daily prompt limit. There is also one tiny Voyage embedding per memory.
+**Cost $:** one Claude extraction per quiet stretch of chat with something worth reading (not per message), about $0.0005–0.0015 on Haiku. It is not counted against the daily prompt limit. There is also one tiny Voyage embedding per memory.
 
 | ID      | Steps                                                              | Expected                                                                                                                      |
 | ------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| CAP-1 $ | "Call Priya about the rent on Friday"                              | Within seconds: a proposed **task** linked to Priya, due the coming Friday; To review badge +1; it's in To do under This week |
-| CAP-2   | "hi there"                                                         | No memory; no extraction call in `llm_calls`                                                                                  |
-| CAP-3 $ | "ok thanks a lot" (4 words)                                        | An extraction call; most likely a **held-back** item "Cooper wasn't sure there was anything to remember here." (noise: M4)    |
+| CAP-1 $ | "Call Priya about the rent on Friday", then wait 5 minutes         | A **task** linked to Priya, due the coming Friday, **accepted on its own**; under your message "Remembered: Call Priya about rent · Undo" after reopening the chat; it's in To do under This week |
+| CAP-2   | "hi there", wait 5 minutes                                         | No memory; no extraction call in `llm_calls`                                                                                  |
+| CAP-3   | "ok thanks a lot", wait 5 minutes                                  | No extraction call (acknowledgement only); nothing in To review                                                               |
 | CAP-4 $ | Turn **Save chats as memories** off, send a fact; turn it on again | No memory for the fact; later messages are captured                                                                           |
 | CAP-5 $ | "split dinner 900/3 with Meera"                                    | A money note: amount 300, calculation "900/3", Meera                                                                          |
-| CAP-6 $ | "feeling drained lately"                                           | A reflection marked **sensitive** (lock icon); Cooper can't find it                                                           |
+| CAP-6 $ | "feeling drained lately"                                           | A reflection marked **sensitive** (lock icon), left in To review; Cooper can't find it                                        |
 | CAP-7 $ | "Atomic Habits"                                                    | A resource memory, no task                                                                                                    |
 | CAP-8 $ | At 00:30 your time: "dentist tomorrow"                             | Due the next day in **your** timezone, not UTC                                                                                |
+| CAP-10 $ | "can you summarize https://example.com/post", wait 5 minutes     | No memory (a request to Cooper); a new side chat gets a short generated title                                                  |
+| CAP-11 $ | Send the same request twice, wait                                 | At most one memory; the second send is dropped as a resend                                                                     |
+| CAP-12 $ | "I moved to Pune, find me a gym near Baner"                       | One fact "Lives in Pune"; no task for the gym search                                                                           |
+| CAP-13 $ | Tap **Undo** under a remembered message                           | "Cooper won't use that."; the memory shows **Marked wrong**                                                                    |
 | CAP-9   | Send a photo with no text                                          | No capture (files-only messages aren't captured; use section 16 for files)                                                    |
 
 ---
@@ -717,23 +735,24 @@ Memories → **People**: every person, place, organisation, project, topic and s
 
 ---
 
-## 15. Feed: activity and insights
+## 15. Feed: Today, this week, and scheduled results
 
-**For you: insights** (`GET /me/insights`; `app/services/insights.py`)
+**Today** (`GET /me/today`; `app/services/today.py`, ADR-048): cards to act on, computed from your own records with **no model**:
 
-- Computed fresh from your memories each time, with **no model**. Each card names the memories it is based on, and tapping it opens them.
+| Card | Shows | Actions |
+| --- | --- | --- |
+| Next up | Overdue, due or reminded today, promises to people, then due this week; at most 5 | Tick to finish; tap to open |
+| Promises | Other open items that involve a person ("with Priya") | Tick; open |
+| Coming up | Today's and tomorrow's calendar events, with what your memories say about the people they name | Open the event or a memory |
+| Still on? | One idea, intention or goal noted 2 weeks to 4 months ago and untouched since, a different one each day | **Plan it with Cooper** (chat prefilled); Open |
+| Is this right? | The newest memories Cooper wasn't sure about (at most 3), and how many more this week wait in To review | **Yes** (accept) / **No** (mark wrong) |
 
-| Kind           | Says                                                                                                                                   |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Money          | Amounts noted this month by currency, top 3 categories, versus last month. Amounts are simply added up, with no paid-vs-owed direction |
-| People         | Who you mentioned most in the last 30 days (≥2 mentions), or who went quiet (≥3 before, none in 30 days)                               |
-| Follow-through | Done, dropped and overdue in 30 days, % finished, and your streak                                                                      |
-| Quiet goal     | An open goal or project untouched for 30+ days                                                                                         |
-| Theme          | A topic mentioned 3+ times this week                                                                                                   |
+**This week: insights** (`GET /me/insights`; `app/services/insights.py`): the same six kinds as before, each shown only with enough evidence: follow-through needs 5 items and at least one you ticked off; a money total needs 5 notes (and 5 in the month it's compared with); people come only from memories about you and them, never from money notes, links, or working notes; imported items you haven't looked at don't count as overdue.
 
 - 👍 shows "Thanks" (local only). 👎 hides that card for its period (week or month), and the feedback is stored.
+- **Pull to refresh** reloads Today and the insights too (fixes B15).
 
-**Activity:** finished scheduled runs, newest first, 30 at a time with infinite scroll and pull to refresh. Each row shows:
+**Scheduled results:** finished scheduled runs, newest first: the latest 3, then **Show all N** for the rest (30 at a time with infinite scroll). Each row shows:
 
 - Done or Failed, and when;
 - "Sent to Slack" (and so on) or "Run manually";
@@ -814,6 +833,39 @@ Settings → Tools & Connections → Google Calendar (connected) → gear → **
 | CAL-4     | A synced event from yesterday                                                       | Shows overdue (known M3)                                                                                     |
 
 ---
+
+### 16.4 Files & links: what Cooper reads and sends (ADR-049, ADR-050)
+
+**What it is.** Settings → **Files & links**: your resume and other documents, and links such as your resume on Google Drive or your portfolio. Cooper **reads** the files when it helps, **attaches** them to emails you approve (your resume to a job application), and **shares** the links by address. Nothing here is turned into memories.
+
+**How it works** (`/me/documents`, `/me/links`; `app/services/documents.py`, `links.py`, `attachments.py`)
+
+1. **Add a File** picks a PDF, Word document (.docx), or text file (10 MB). The text is read **without a model** (a PDF's text layer, a Word document's paragraphs, a text file as is), and the **file itself is kept** too, up to 50 MB for all your files. The same file again is "already in My files".
+2. Files added before files were kept show **"Text only, upload again to attach"**. Uploading the same file again keeps it: "Kept the file. Cooper can now attach it to emails."
+3. A **scanned PDF** (no text layer) is refused with "it looks like a scan", unless the operator sets `DOCUMENT_VISION_FALLBACK=true`; then Claude reads it once (one of the day's prompts).
+4. The first file that looks like a resume becomes **your resume**. On a file's screen, **Use as My Resume** moves it; **Open or Share** opens the kept file in the share sheet.
+5. **Add a Link** takes an address (https:// is added), an optional title, and a kind (Resume, Portfolio, LinkedIn, GitHub, Website, Other; guessed from the title and site when unset). At most one link is your resume. Tap a link for Open, Edit, Use as My Resume, and Delete; touch and hold to open it.
+6. Cooper sees your files (marked *resume* and *attachable*) and your links (with their addresses) in every chat. It reads a file with `read_document` and finds details with `search_documents`.
+7. **Job applications:** Cooper reads your resume, drafts the email, **attaches your resume file** when it is attachable, and **puts your resume link** in the body when you saved one. The draft card lists the attachments; **Send** attaches exactly those files. If a file was deleted meanwhile, sending stops with a message instead of going out without it.
+8. **Delete** removes a file's text and file, or a link, at once: Cooper can't read or send it afterwards. (Its earlier replies in a chat stay until you clear that chat.)
+9. In chat, a **PDF you send from this phone** offers **"Save <name> to My files"** under your message, because attachments are otherwise read for that one reply only.
+
+**Cost:** none for text PDFs, Word and text files. Reading a file costs tokens only when Cooper reads it in a reply.
+
+| ID | Steps | Expected |
+| --- | --- | --- |
+| DOC-1 | Files & links → Add a File → your resume PDF | "Added as your resume…"; *Resume* at the right; the file's screen shows Attach to emails: Ready, and its text |
+| DOC-2 $ | Chat: "apply to this job: <post or job page>" | "Reading your files" label; the draft uses your resume's facts; the card lists your resume as an attachment |
+| DOC-3 $ | Tap Send on that card | The email arrives with the resume attached (and the resume link in the body if one is saved) |
+| DOC-4 | Delete the resume, ask "what's on my resume?" | Cooper says you have no documents (or none marked as resume) |
+| DOC-5 | Upload the same file twice | "This file is already in My files" |
+| DOC-6 | A file added before ADR-050, upload it again | "Kept the file…"; the row no longer says Text only |
+| DOC-7 | Upload a scanned PDF | "This PDF has no text to read; it looks like a scan…" |
+| DOC-8 | Send a PDF in chat → tap "Save … to My files" | "Saved to My files"; it's listed |
+| LINK-1 | Add a Link → `drive.google.com/…`, title "Resume" | Saved as your resume link (green, *Resume*) |
+| LINK-2 | Add a second link as Resume | The first becomes a plain link |
+| LINK-3 $ | "Send my portfolio link to <email>" | Cooper writes the saved address exactly and asks before sending |
+| LINK-4 | Prepare a draft attaching the resume, delete the resume, tap Send | The card fails with "A file chosen to attach was deleted…"; nothing is sent |
 
 ## 17. Connected apps
 
@@ -915,7 +967,7 @@ Settings → **Tools & Connections** (`app/services/tool_connections.py`, Compos
 
 ## 20. Ideas, Help, and Feedback
 
-- **Ideas** (static): four templates (AI Builder Cup, apps leaderboard, a Shorts series, a launch post). Tapping one puts its prompt in the chat box without sending it. They are not personalised.
+- **Ideas:** **Your ideas** first: your idea memories (`GET /me/memories?memory_type=idea`), newest first; tap one to see where it came from, **Explore** to think it through with Cooper (chat prefilled). Below, **Things to try**: four templates (AI Builder Cup, apps leaderboard, a Shorts series, a launch post) that put their prompt in the chat box without sending it.
 - **Help & Feedback:** four FAQ answers (using your agent's name) and a feedback box (up to 4,000 characters) → `POST /feedback` → "Thanks! Your feedback was sent." Feedback is read with SQL (`SELECT * FROM feedback`).
 
 | ID     | Steps                              | Expected                                                  |
@@ -959,7 +1011,7 @@ All of these run inside the API machine. All are safe if two machines briefly ov
 | -------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------- |
 | **Scheduler**              | 60 s (free setup: see the note below) | Claims due schedules, runs them (3 at a time), skips late slots, fails runs stuck for 30 minutes      | Yes: Claude per run        |
 | **Reminders and brief**    | 60 s                                  | Sends due reminders; sends each user's brief once a day                                               | No                         |
-| **Memory pipeline worker** | 30 s                                  | Retries transient extraction failures, recovers stuck runs, works through import queues, 10 at a time | Yes: Claude per extraction |
+| **Memory pipeline worker** | 30 s                                  | Captures chats quiet for 5 minutes (one unit each), retries transient extraction failures, recovers stuck runs, works through import queues, 10 at a time | Yes: Claude per extraction |
 | **Search indexer**         | 15 s                                  | Embeds new and changed non-sensitive memories, in batches of 64 per user                              | Yes: Voyage, tiny          |
 | **Calendar sync**          | 6 h, and at every start               | Syncs Google Calendar for users who turned it on                                                      | Composio quota only        |
 
@@ -1048,9 +1100,9 @@ Fixed on 25 October 2026, while this guide was written:
 | ID  | Severity | Issue                                                                                                                                                                                                                                                         |
 | --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M1  | High     | **Failed memory saves vanish.** Permanent extraction failures (no credit, refusal, truncation) end as `failed`. They are shown nowhere and never retried, so an Anthropic credit outage silently loses that period's memories                                 |
-| M2  | High     | **The extraction prompt doesn't know about speakers or requests.** WhatsApp lines ("Priya: I'm moving") can become _your_ memories; requests to Cooper ("find flights to Goa") can become to-dos. Quality on chats, imports and files has never been measured |
+| M2  | Medium   | **Partly fixed 26 Oct (ADR-048):** chats are read as conversations with Cooper's replies as context, and requests to Cooper are not memories. Speaker attribution in imports still relies on the prompt; quality of prompt 3 on chats, imports and files has never been measured |
 | M3  | Medium   | Calendar plans go overdue after their day; deleted events stay; recurring events multiply                                                                                                                                                                     |
-| M4  | Medium   | Chit-chat of 3+ words costs an extraction and can add a held-back item to To review                                                                                                                                                                           |
+| M4  | Fixed    | **Fixed 26 Oct (ADR-048):** acknowledgements, approvals and resends cost no extraction, and a conversation with nothing to remember is no longer held back for review                                                                                         |
 | M5  | Medium   | WhatsApp imports and capture extractions aren't counted against any quota; any number of files can be imported                                                                                                                                                |
 | M6  | Medium   | Deleting a memory or chat leaves the raw evidence and the extraction payload; a previewed import keeps the whole chat text; there is no delete-import endpoint                                                                                                |
 | M7  | Medium   | Cooper's memory search can quote the raw message when a memory has no quote. That can expose text that went into a sensitive memory, and it labels imported lines "The user wrote"                                                                            |

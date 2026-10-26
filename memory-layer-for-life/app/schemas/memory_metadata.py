@@ -2,7 +2,9 @@
 
 JSONB is used for attributes that vary by memory type. It is still a contract: the
 pipeline and the memory service write this model and readers can validate against it.
-``disposition`` is the extractor's; a memory the user wrote has none.
+``disposition`` is the extractor's; a memory the user wrote has none. ``title`` is the
+extractor's short label for lists (``app.domain.memory_policy.display_title``); a memory
+without one is listed by its cleaned-up content.
 """
 
 from typing import Literal
@@ -21,3 +23,4 @@ class MemoryMetadata(ContractModel):
     ambiguity: str | None = None
     temporal: TemporalInfo | None = None
     financial: FinancialInfo | None = None
+    title: str | None = None

@@ -1,19 +1,22 @@
 /**
- * Cost History (inside the Settings "Today" card)
+ * Cost History (a row in the Settings "Today" section)
  *
- * A collapsible section: a chevron row that opens estimated cost per day, week, or month
- * as columns, with the prompts used. Nothing loads until it is first opened; while open,
- * it refreshes whenever Settings comes back into view.
+ * A disclosure row that opens estimated cost per day, week, or month as columns, with the
+ * prompts used. Nothing loads until it is first opened; while open, it refreshes whenever
+ * Settings comes back into view.
  *
- * One series in one hue; the tapped column (by default the current period) is darker and
- * read out above the chart, so every value is reachable without the chart too. Each
- * column's hit area is its whole slot, and screen readers get one labelled button per
+ * One series in the tint; the tapped column (by default the current period) is darker and
+ * read out above the chart, so every value is reachable without the chart too. Axes are
+ * minimal, as in Screen Time: hairline gridlines, values at the right, three dates below.
+ * Each column's hit area is its whole slot, and screen readers get one labelled button per
  * period. While a new range loads, the previous chart stays, dimmed. Costs are in the
  * currency the backend reports (rupees by default). Periods are UTC, like the daily
  * prompt limit; weeks start on Monday.
  */
 
+import { AppText, Button, SegmentedControl } from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { Hairline, Motion } from '@/constants/theme';
 import { getErrorMessage, isAbortError } from '@/lib/api/client';
 import { getUsageHistory } from '@/lib/api/me';
 import type { UsageGranularity, UsageHistory } from '@/lib/api/types';
@@ -28,28 +31,24 @@ import {
   rangeCaption,
   toAmount,
 } from '@/lib/usageChart';
-import { ArrowDown01Icon } from '@hugeicons/core-free-icons';
+import { ArrowRight01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  type LayoutChangeEvent,
-} from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import Animated, { useReducedMotion } from 'react-native-reanimated';
 import Svg, { Line, Path, Text as SvgText } from 'react-native-svg';
 
 const GRANULARITIES: UsageGranularity[] = ['day', 'week', 'month'];
+const SEGMENTS = GRANULARITIES.map((value) => ({ value, label: GRANULARITY_LABELS[value] }));
 const PLOT_HEIGHT = 132;
 const X_AXIS_BAND = 22;
+// The value labels sit at the right of the plot, as in Screen Time.
 const Y_AXIS_WIDTH = 46;
+const Y_LABEL_GAP = 6;
 const PLOT_TOP = 8;
 const MAX_COLUMN_WIDTH = 24;
-const AXIS_FONT_SIZE = 10.5;
+const AXIS_FONT_SIZE = 11;
 
 export function CostHistory() {
   const [isOpen, setIsOpen] = useState(false);
@@ -59,6 +58,8 @@ export function CostHistory() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [chartWidth, setChartWidth] = useState(0);
+  const [pressed, setPressed] = useState(false);
+  const reducedMotion = useReducedMotion();
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -107,71 +108,77 @@ export function CostHistory() {
   const yFor = (value: number) => baseline - (value / top) * PLOT_HEIGHT;
 
   return (
-    <View style={styles.section}>
-      <TouchableOpacity
-        style={styles.toggleRow}
+    <View>
+      {/* A disclosure row: highlights while touched, like a list cell; the chevron turns
+          down when open. */}
+      <Pressable
         onPress={() => setIsOpen((open) => !open)}
-        activeOpacity={0.7}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
+        unstable_pressDelay={40}
+        pressRetentionOffset={16}
         accessibilityRole="button"
         accessibilityState={{ expanded: isOpen }}
         accessibilityLabel="Cost history">
-        <Text style={styles.toggleText}>Cost history</Text>
-        <View style={isOpen && styles.chevronOpen}>
-          <HugeiconsIcon icon={ArrowDown01Icon} size={18} color={Colors.iconDark} strokeWidth={2} />
-        </View>
-      </TouchableOpacity>
+        <Animated.View style={[styles.toggleRow, pressed ? styles.rowPressed : styles.rowIdle]}>
+          <AppText variant="body" style={styles.toggleText}>
+            Cost history
+          </AppText>
+          <Animated.View
+            style={[
+              styles.chevron,
+              isOpen && styles.chevronOpen,
+              reducedMotion && styles.chevronStill,
+            ]}>
+            <HugeiconsIcon
+              icon={ArrowRight01Icon}
+              size={18}
+              color={Colors.tertiaryLabel}
+              strokeWidth={2.2}
+            />
+          </Animated.View>
+        </Animated.View>
+      </Pressable>
 
       {isOpen ? (
         <View style={styles.body}>
-          <View style={styles.segmented} accessibilityRole="tablist">
-            {GRANULARITIES.map((option) => {
-              const active = option === granularity;
-              return (
-                <TouchableOpacity
-                  key={option}
-                  style={[styles.segment, active && styles.segmentActive]}
-                  onPress={() => setGranularity(option)}
-                  activeOpacity={0.7}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: active }}>
-                  <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
-                    {GRANULARITY_LABELS[option]}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <SegmentedControl segments={SEGMENTS} value={granularity} onChange={setGranularity} />
 
           {history === null ? (
             error ? (
-              <TouchableOpacity
-                onPress={() => load()}
-                activeOpacity={0.7}
-                accessibilityRole="button">
-                <Text style={styles.errorText}>{error}</Text>
-                <Text style={styles.retryText}>Try again</Text>
-              </TouchableOpacity>
+              <View style={styles.errorBlock}>
+                <AppText variant="footnote" color="destructive">
+                  {error}
+                </AppText>
+                <Button
+                  title="Try again"
+                  variant="plain"
+                  size="small"
+                  onPress={() => load()}
+                  containerStyle={styles.retry}
+                />
+              </View>
             ) : (
-              <ActivityIndicator style={styles.spinner} color={Colors.primary} />
+              <ActivityIndicator style={styles.spinner} color={Colors.secondaryLabel} />
             )
           ) : (
             <View style={isLoading && styles.refetching}>
-              <Text style={styles.total}>{formatCost(history.total_cost, currency)}</Text>
-              <Text style={styles.caption}>
+              <AppText variant="title2">{formatCost(history.total_cost, currency)}</AppText>
+              <AppText variant="footnote" color="secondary" style={styles.caption}>
                 {rangeCaption(shownGranularity)} · {history.total_prompts.toLocaleString()}{' '}
                 {history.total_prompts === 1 ? 'prompt' : 'prompts'} · UTC
-              </Text>
+              </AppText>
 
               {selectedPeriod ? (
                 <View style={styles.readout}>
-                  <Text style={styles.readoutValue}>
+                  <AppText variant="subheadline" weight="600">
                     {formatCost(selectedPeriod.cost, currency)}
-                  </Text>
-                  <Text style={styles.readoutLabel}>
+                  </AppText>
+                  <AppText variant="footnote" color="secondary" style={styles.readoutLabel}>
                     {periodLabel(selectedPeriod.start, shownGranularity, 'long')} ·{' '}
                     {selectedPeriod.prompts.toLocaleString()}{' '}
                     {selectedPeriod.prompts === 1 ? 'prompt' : 'prompts'}
-                  </Text>
+                  </AppText>
                 </View>
               ) : null}
 
@@ -185,27 +192,28 @@ export function CostHistory() {
                     {ticks.map((tick) => (
                       <Line
                         key={`grid-${tick}`}
-                        x1={Y_AXIS_WIDTH}
-                        x2={chartWidth}
+                        x1={0}
+                        x2={plotWidth}
                         y1={yFor(tick)}
                         y2={yFor(tick)}
                         stroke={Colors.chartGrid}
-                        strokeWidth={1}
+                        strokeWidth={tick === 0 ? 1 : Hairline}
+                        strokeDasharray={tick === 0 ? undefined : '3 3'}
                       />
                     ))}
                     {ticks.map((tick) => (
                       <SvgText
                         key={`tick-${tick}`}
-                        x={Y_AXIS_WIDTH - 8}
+                        x={plotWidth + Y_LABEL_GAP}
                         y={yFor(tick) + AXIS_FONT_SIZE / 3}
                         fontSize={AXIS_FONT_SIZE}
                         fill={Colors.chartAxisText}
-                        textAnchor="end">
+                        textAnchor="start">
                         {formatTick(tick, step, currency)}
                       </SvgText>
                     ))}
                     {periods.map((period, index) => {
-                      const x = Y_AXIS_WIDTH + index * slot + (slot - columnWidth) / 2;
+                      const x = index * slot + (slot - columnWidth) / 2;
                       return (
                         <Path
                           key={period.start}
@@ -219,10 +227,10 @@ export function CostHistory() {
                         key={`label-${periods[index].start}`}
                         x={
                           position === 0
-                            ? Y_AXIS_WIDTH
+                            ? 0
                             : position === all.length - 1
-                              ? chartWidth
-                              : Y_AXIS_WIDTH + (index + 0.5) * slot
+                              ? plotWidth
+                              : (index + 0.5) * slot
                         }
                         y={baseline + X_AXIS_BAND - 6}
                         fontSize={AXIS_FONT_SIZE}
@@ -240,7 +248,7 @@ export function CostHistory() {
                 {periods.map((period, index) => (
                   <Pressable
                     key={`hit-${period.start}`}
-                    style={[styles.hitArea, { left: Y_AXIS_WIDTH + index * slot, width: slot }]}
+                    style={[styles.hitArea, { left: index * slot, width: slot }]}
                     onPress={() => setSelected(index)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: index === selectedIndex }}
@@ -253,9 +261,15 @@ export function CostHistory() {
               </View>
 
               {isEmpty ? (
-                <Text style={styles.caption}>Chats and scheduled tasks will show here.</Text>
+                <AppText variant="footnote" color="secondary" style={styles.caption}>
+                  Chats and scheduled tasks will show here.
+                </AppText>
               ) : null}
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              {error ? (
+                <AppText variant="footnote" color="destructive" style={styles.caption}>
+                  {error}
+                </AppText>
+              ) : null}
             </View>
           )}
         </View>
@@ -265,81 +279,58 @@ export function CostHistory() {
 }
 
 const styles = StyleSheet.create({
-  section: {
-    marginTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: Colors.cardBorder,
-  },
   toggleRow: {
+    minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 12,
-    minHeight: 36,
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    transitionProperty: 'backgroundColor',
+    transitionTimingFunction: 'ease-out',
+  },
+  // Highlight at once on touch down; fade out after release (as ListRow does).
+  rowPressed: {
+    backgroundColor: Colors.cellPressed,
+    transitionDuration: 0,
+  },
+  rowIdle: {
+    backgroundColor: Colors.secondaryGroupedBackground,
+    transitionDuration: 350,
   },
   toggleText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.iconDark,
+    flex: 1,
+  },
+  chevron: {
+    transform: [{ rotate: '0deg' }],
+    transitionProperty: 'transform',
+    transitionDuration: Motion.duration.small,
+    transitionTimingFunction: Motion.css.easeOut,
   },
   chevronOpen: {
-    transform: [{ rotate: '180deg' }],
+    transform: [{ rotate: '90deg' }],
+  },
+  chevronStill: {
+    transitionDuration: 0,
   },
   body: {
-    marginTop: 10,
-  },
-  segmented: {
-    flexDirection: 'row',
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.white,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-    padding: 2,
-    marginBottom: 12,
-  },
-  segment: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  segmentActive: {
-    backgroundColor: Colors.tabActiveBg,
-  },
-  segmentText: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: Colors.chartAxisText,
-  },
-  segmentTextActive: {
-    color: Colors.iconDark,
-  },
-  total: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    letterSpacing: -0.4,
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 16,
   },
   caption: {
-    fontSize: 12.5,
-    color: Colors.chartAxisText,
     marginTop: 2,
   },
   readout: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    gap: 8,
     marginTop: 14,
     marginBottom: 6,
   },
-  readoutValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    marginRight: 8,
-  },
   readoutLabel: {
-    fontSize: 12.5,
-    color: Colors.chartAxisText,
+    flexShrink: 1,
   },
   chart: {
     height: PLOT_TOP + PLOT_HEIGHT + X_AXIS_BAND,
@@ -356,16 +347,11 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginVertical: 6,
   },
-  errorText: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.error,
-    marginTop: 6,
+  errorBlock: {
+    alignItems: 'flex-start',
+    gap: 4,
   },
-  retryText: {
-    marginTop: 6,
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Colors.primary,
+  retry: {
+    marginLeft: -4,
   },
 });

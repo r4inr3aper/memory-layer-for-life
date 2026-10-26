@@ -10,13 +10,10 @@ can be shown to the user, who can also take over, for example to sign in.
 from dataclasses import dataclass
 from typing import Any, Final
 
-
 import httpx
 import structlog
 
-
 from app.domain.errors import IntegrationError
-
 
 logger = structlog.get_logger(__name__)
 

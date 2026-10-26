@@ -1,24 +1,21 @@
 /**
  * ToolCard Component ('src/components/tools/ToolCard.tsx')
  *
- * List item row for tool connections:
- * - App logo from the backend catalog's logo_url, using expo-image
- * - Tool Name and connected status / account subtitle
- * - Connect / Pending / Connected / Manage / Disconnect buttons
+ * One app in the Tools & Connections list, as an inset-grouped row:
+ * - The app's glyph: its logo from the backend catalog's logo_url (expo-image), on a
+ *   rounded tile, or its initial when there is no logo
+ * - Its name, and below it "Connected" with the account, the pending or failed state, or
+ *   what the app does
+ * - At the right: a small tinted Connect (or Retry) button, or, once connected, a chevron:
+ *   the row opens the Manage sheet
  */
 
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
-import { HugeiconsIcon } from '@hugeicons/react-native';
-import { Settings02Icon } from '@hugeicons/core-free-icons';
+import { AppText, Button, ListRow } from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { continuous } from '@/constants/theme';
 import { Tool } from '@/types/tools';
 
 export interface ToolCardProps {
@@ -27,6 +24,39 @@ export interface ToolCardProps {
   onConnect?: (tool: Tool) => void;
   onDisconnect?: (tool: Tool) => void;
   onManage?: (tool: Tool) => void;
+  /**
+   * The row's glyph; the app's `AppGlyph` by default. A list passes it in when it needs
+   * to see the glyph (ListSection insets its separators past a row's `leading`).
+   */
+  leading?: React.ReactNode;
+}
+
+/** The app's logo on a rounded tile, the size of a list row's icon tile by default. */
+export function AppGlyph({ tool, size = 30 }: { tool: Tool; size?: number }) {
+  const logoSize = Math.round(size * 0.68);
+  return (
+    <View
+      style={[
+        styles.glyph,
+        continuous,
+        { width: size, height: size, borderRadius: Math.round(size * 0.24) },
+      ]}>
+      {tool.logo_url ? (
+        <Image
+          source={{ uri: tool.logo_url }}
+          style={{ width: logoSize, height: logoSize }}
+          contentFit="contain"
+          transition={200}
+        />
+      ) : (
+        <View style={styles.initialFallback}>
+          <AppText variant={size >= 44 ? 'title2' : 'headline'} color="tint">
+            {tool.name ? tool.name.charAt(0).toUpperCase() : 'T'}
+          </AppText>
+        </View>
+      )}
+    </View>
+  );
 }
 
 export const ToolCard: React.FC<ToolCardProps> = ({
@@ -35,281 +65,78 @@ export const ToolCard: React.FC<ToolCardProps> = ({
   onConnect,
   onDisconnect,
   onManage,
+  leading,
 }) => {
-  const imageUrl = tool.logo_url;
   const isConnected = tool.status === 'connected';
   const isPending = tool.status === 'pending';
   const isFailed = tool.status === 'failed';
+  const account = tool.connected_email || tool.connected_label;
 
   // Subtitle resolution
-  let subtitle = tool.description || null;
+  let subtitle = tool.description || undefined;
   if (isConnected) {
-    subtitle = tool.connected_email || tool.connected_label || 'Connected';
+    subtitle = account ? `Connected · ${account}` : 'Connected';
   } else if (isPending) {
     subtitle = 'Authorization pending...';
   } else if (isFailed) {
     subtitle = 'Connection failed. Tap retry.';
   }
 
+  const canManage = isConnected && Boolean(onManage);
+
+  let accessory: React.ReactNode;
+  if (isLoading) {
+    accessory = <ActivityIndicator size="small" color={Colors.secondaryLabel} />;
+  } else if (isConnected) {
+    // With a Manage sheet, the row opens it (a chevron); without one, disconnect here.
+    accessory = canManage ? undefined : (
+      <Button
+        title="Disconnect"
+        variant="destructive"
+        size="small"
+        onPress={() => onDisconnect?.(tool)}
+      />
+    );
+  } else if (isPending) {
+    accessory = (
+      <Button title="Pending..." variant="gray" size="small" onPress={() => onConnect?.(tool)} />
+    );
+  } else if (isFailed) {
+    accessory = (
+      <Button title="Retry" variant="tinted" size="small" onPress={() => onConnect?.(tool)} />
+    );
+  } else {
+    accessory = (
+      <Button title="Connect" variant="tinted" size="small" onPress={() => onConnect?.(tool)} />
+    );
+  }
+
   return (
-    <View style={styles.listRow}>
-      {/* 1. Tool Logo Image from DB */}
-      <View style={styles.logoWrapper}>
-        {imageUrl ? (
-          <Image
-            source={{ uri: imageUrl }}
-            style={styles.logoImage}
-            contentFit="contain"
-            transition={200}
-          />
-        ) : (
-          <View style={styles.initialFallback}>
-            <Text style={styles.initialText}>
-              {tool.name ? tool.name.charAt(0).toUpperCase() : 'T'}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* 2. Tool Name & Subtitle / Status */}
-      <View style={styles.infoWrapper}>
-        <View style={styles.nameRow}>
-          <Text style={styles.toolName} numberOfLines={1}>
-            {tool.name}
-          </Text>
-          {isConnected && <View style={styles.connectedDot} />}
-          {isPending && <View style={styles.pendingDot} />}
-        </View>
-
-        {subtitle && (
-          <Text
-            style={[
-              styles.subtitleText,
-              isConnected && styles.connectedSubtitleText,
-              isFailed && styles.failedSubtitleText,
-              isPending && styles.pendingSubtitleText,
-            ]}
-            numberOfLines={1}>
-            {subtitle}
-          </Text>
-        )}
-      </View>
-
-      {/* 3. Action Buttons Section */}
-      <View style={styles.actionContainer}>
-        {isLoading ? (
-          <View style={styles.loadingWrapper}>
-            <ActivityIndicator size="small" color={Colors.primary} />
-          </View>
-        ) : isConnected ? (
-          <View style={styles.connectedActions}>
-            {/* Manage Option */}
-            {onManage && (
-              <TouchableOpacity
-                style={styles.manageButton}
-                onPress={() => onManage(tool)}
-                activeOpacity={0.7}>
-                <HugeiconsIcon
-                  icon={Settings02Icon}
-                  size={16}
-                  color={Colors.iconDark}
-                  strokeWidth={2}
-                />
-              </TouchableOpacity>
-            )}
-
-            {/* Disconnect Option */}
-            <TouchableOpacity
-              style={styles.disconnectButton}
-              onPress={() => onDisconnect?.(tool)}
-              activeOpacity={0.7}>
-              <Text style={styles.disconnectButtonText}>Disconnect</Text>
-            </TouchableOpacity>
-          </View>
-        ) : isPending ? (
-          <TouchableOpacity
-            style={styles.pendingButton}
-            onPress={() => onConnect?.(tool)}
-            activeOpacity={0.7}>
-            <ActivityIndicator
-              size="small"
-              color={Colors.warning}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={styles.pendingButtonText}>Pending...</Text>
-          </TouchableOpacity>
-        ) : isFailed ? (
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={() => onConnect?.(tool)}
-            activeOpacity={0.7}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.connectButton}
-            onPress={() => onConnect?.(tool)}
-            activeOpacity={0.7}>
-            <Text style={styles.connectButtonText}>Connect</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
+    <ListRow
+      title={tool.name}
+      subtitle={subtitle}
+      leading={leading ?? <AppGlyph tool={tool} />}
+      accessory={accessory}
+      onPress={canManage ? () => onManage?.(tool) : undefined}
+    />
   );
 };
 
 const styles = StyleSheet.create({
-  listRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: Colors.white,
-  },
-  logoWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: 11,
-    backgroundColor: Colors.surfaceMuted,
+  glyph: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
     overflow: 'hidden',
-  },
-  logoImage: {
-    width: 26,
-    height: 26,
+    backgroundColor: Colors.tertiaryFill,
   },
   initialFallback: {
-    width: '100%',
-    height: '100%',
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.primarySubtle,
-  },
-  initialText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  infoWrapper: {
-    flex: 1,
-    marginRight: 10,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  toolName: {
-    fontSize: 15.5,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
-  },
-  connectedDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.success,
-    marginLeft: 6,
-  },
-  pendingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.warning,
-    marginLeft: 6,
-  },
-  subtitleText: {
-    fontSize: 12.5,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  connectedSubtitleText: {
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  pendingSubtitleText: {
-    color: Colors.warning,
-    fontWeight: '500',
-  },
-  failedSubtitleText: {
-    color: Colors.error,
-    fontWeight: '500',
-  },
-  actionContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  loadingWrapper: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-  },
-  connectedActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  manageButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
-    backgroundColor: Colors.surfaceMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  connectButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 10,
-  },
-  connectButtonText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Colors.white,
-  },
-  pendingButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.warningLight,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
-  },
-  pendingButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.warning,
-  },
-  retryButton: {
-    backgroundColor: Colors.primarySubtle,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.primaryBorder,
-  },
-  retryButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  disconnectButton: {
-    backgroundColor: Colors.errorLight,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.2)',
-  },
-  disconnectButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.error,
+    backgroundColor: Colors.tintFill,
   },
 });

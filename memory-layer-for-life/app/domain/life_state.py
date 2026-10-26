@@ -33,6 +33,12 @@ ACTIONABLE_TYPES: Final = frozenset(
 )
 LONG_TERM_TYPES: Final = frozenset({MemoryType.GOAL, MemoryType.PROJECT})
 LIFE_TYPES: Final = ACTIONABLE_TYPES | LONG_TERM_TYPES
+# Open questions and unresolved problems: open, but nothing to tick off. Listed apart from
+# the to-dos (ADR-048).
+QUESTION_TYPES: Final = frozenset({MemoryType.OPEN_LOOP})
+# What the brief counts as new to review: memories proposed in the last week. Older ones
+# are the backlog of earlier versions of the pipeline, not news.
+REVIEW_NEWS_WINDOW: Final = timedelta(days=7)
 # States of an item still to do. Goals and projects often have no state, so theirs counts.
 OPEN_STATES: Final = frozenset({MemoryState.OPEN, MemoryState.PLANNED})
 LONG_TERM_OPEN_STATES: Final = OPEN_STATES | {MemoryState.NOT_APPLICABLE}

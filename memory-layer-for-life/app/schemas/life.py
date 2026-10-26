@@ -27,6 +27,15 @@ class LifeOverviewResponse(ResponseSchema):
     )
     reminders: list[MemoryResponse] = Field(description="Pending reminders, soonest first.")
     recently_done: list[MemoryResponse] = Field(description="Done in the last seven days.")
+    questions: list[MemoryResponse] = Field(
+        default_factory=list,
+        description="Open questions and unresolved problems: open, but nothing to tick off.",
+    )
+    triage: list[MemoryResponse] = Field(
+        default_factory=list,
+        description="Open items from an imported chat that nobody has looked at yet: keep "
+        "(accept), done, or drop. They are not in the lists above until kept.",
+    )
 
 
 class BriefItemResponse(ResponseSchema):
@@ -64,3 +73,38 @@ class MessageHitResponse(ResponseSchema):
 class MessageSearchResponse(ResponseSchema):
     query: str
     items: list[MessageHitResponse]
+
+
+class PromiseResponse(ResponseSchema):
+    memory: MemoryResponse
+    people: list[str] = Field(description="The people it involves.")
+
+
+class MeetingResponse(ResponseSchema):
+    event: MemoryResponse = Field(description="A calendar event of today or tomorrow.")
+    people: list[str] = Field(description="The user's people the event names.")
+    related: list[MemoryResponse] = Field(
+        description="What the user's memories say about them, newest first."
+    )
+
+
+class TodayResponse(ResponseSchema):
+    """The Feed's cards: each something to act on, computed without a model (ADR-048)."""
+
+    today: date = Field(description="The user's local date.")
+    timezone: str
+    next_actions: list[MemoryResponse] = Field(
+        description="Overdue, due or reminded today, promises to people, then due this "
+        "week; at most five, most pressing first."
+    )
+    promises: list[PromiseResponse] = Field(
+        description="Other open items that involve a person, at most three."
+    )
+    meetings: list[MeetingResponse] = Field(description="Calendar events of today and tomorrow.")
+    resurface: MemoryResponse | None = Field(
+        description="An idea, intention, or goal noted weeks ago and untouched since: still on?"
+    )
+    to_confirm: list[MemoryResponse] = Field(
+        description="The newest memories the pipeline was unsure of, at most three."
+    )
+    review_count: int = Field(description="Memories made in the last week that wait for review.")

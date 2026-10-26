@@ -7,11 +7,16 @@ Tools run through a Tool Router session scoped to one toolkit and to the user's
 connected accounts for it: the session searches the toolkit for tools that fit a use
 case, then executes one with arguments.
 
+A tool that takes a file (an email attachment, an upload) gets it staged first: Composio
+hands out an upload address for that tool, the bytes go there, and the tool's arguments
+carry the returned key as ``{name, mimetype, s3key}`` (ADR-050).
+
 Responses are parsed leniently, because Composio adds fields over time, but every value
 the application relies on is checked. Composio's own error text can echo request data,
 so failures are described in the application's words.
 """
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -65,6 +70,18 @@ class ComposioExecution:
     successful: bool
     data: object
     error: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ComposioFile:
+    """A file staged with Composio for one tool, as that tool's arguments carry it."""
+
+    name: str
+    mimetype: str
+    s3key: str
+
+    def as_argument(self) -> JsonObject:
+        return {"name": self.name, "mimetype": self.mimetype, "s3key": self.s3key}
 
 
 class ComposioNotFoundError(IntegrationError):
@@ -213,6 +230,53 @@ class ComposioClient:
             data=document.get("data"),
             error=error,
         )
+
+    # --- Files -------------------------------------------------------------------------
+
+    async def upload_file(
+        self,
+        toolkit_slug: str,
+        tool_slug: str,
+        *,
+        filename: str,
+        mimetype: str,
+        data: bytes,
+    ) -> ComposioFile:
+        """Stage a file for one tool: ask for an upload address, then put the bytes there.
+        Composio resolves the returned key when the tool runs."""
+        document = await self._request(
+            "POST",
+            "/files/upload/request",
+            json={
+                "toolkit_slug": toolkit_slug,
+                "tool_slug": tool_slug,
+                "filename": filename,
+                "mimetype": mimetype,
+                # An integrity checksum Composio asks for, not a security measure.
+                "md5": hashlib.md5(data, usedforsecurity=False).hexdigest(),
+            },
+        )
+        key = _first_text(document, "key")
+        url = _first_text(document, "new_presigned_url", "newPresignedUrl")
+        if key is None or url is None:
+            raise IntegrationError(SERVICE_NAME, "returned a file upload without an address.")
+        # The address was signed for this content type, so the upload must send it.
+        headers = {"Content-Type": mimetype}
+        backend = _text(_object(document.get("metadata")).get("storage_backend"))
+        if backend == "azure_blob_storage":
+            headers["x-ms-blob-type"] = "BlockBlob"
+        try:
+            response = await self._http.put(url, content=data, headers=headers)
+        except httpx.TimeoutException as error:
+            raise IntegrationError(SERVICE_NAME, "the file upload timed out.") from error
+        except httpx.HTTPError as error:
+            raise IntegrationError(SERVICE_NAME, "the file upload failed.") from error
+        if response.status_code not in (200, 201):
+            logger.warning("composio_file_upload_failed", http_status=response.status_code)
+            raise IntegrationError(
+                SERVICE_NAME, f"did not accept the file (HTTP {response.status_code})."
+            )
+        return ComposioFile(name=filename, mimetype=mimetype, s3key=key)
 
     # --- Transport ---------------------------------------------------------------------
 

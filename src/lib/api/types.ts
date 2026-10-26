@@ -123,8 +123,11 @@ export interface MemoryItem {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
-  /** Who wrote the text: the memory pipeline, or the user (by hand or by correcting). */
-  created_by: "pipeline" | "user";
+  /**
+   * Who wrote the text: the memory pipeline, the user (by hand or by correcting), Cooper
+   * (a reminder), or a connected app (a calendar event).
+   */
+  created_by: "pipeline" | "user" | "assistant" | "app";
   /** Health, feelings, or other private matters: shown here, never given to Cooper. */
   sensitive: boolean;
   /** Whether what it describes is open, planned, or done. */
@@ -135,6 +138,8 @@ export interface MemoryItem {
   remind_at: string | null;
   closed_at: string | null;
   close_reason: "done" | "dropped" | null;
+  /** A short label for lists: the extractor's title, or the content trimmed for a list. */
+  title: string;
 }
 
 /** What is open in the user's life now; each list soonest due first. */
@@ -155,6 +160,43 @@ export interface LifeOverview {
   stale_ids: string[];
   reminders: MemoryItem[];
   recently_done: MemoryItem[];
+  /** Open questions and unresolved problems: open, but nothing to tick off. */
+  questions: MemoryItem[];
+  /**
+   * Open items from an imported chat nobody has looked at: keep (accept), done, or drop.
+   * They are in none of the lists above until kept.
+   */
+  triage: MemoryItem[];
+}
+
+/** An open item that involves people. */
+export interface TodayPromise {
+  memory: MemoryItem;
+  people: string[];
+}
+
+/** A calendar event of today or tomorrow, with what the user's memories say about its people. */
+export interface TodayMeeting {
+  event: MemoryItem;
+  people: string[];
+  related: MemoryItem[];
+}
+
+/** The Feed's cards, each something to act on; computed without a model. */
+export interface TodayCards {
+  /** The user's local date, YYYY-MM-DD. */
+  today: string;
+  timezone: string;
+  /** Overdue, due or reminded today, promises to people, then due this week; at most 5. */
+  next_actions: MemoryItem[];
+  promises: TodayPromise[];
+  meetings: TodayMeeting[];
+  /** An idea, intention, or goal noted weeks ago and untouched since: still on? */
+  resurface: MemoryItem | null;
+  /** The newest memories the pipeline was unsure of; at most 3. */
+  to_confirm: MemoryItem[];
+  /** Memories made in the last week that wait for review. */
+  review_count: number;
 }
 
 export interface BriefPreview {
@@ -317,7 +359,14 @@ export type MemoryEventAction =
   | "superseded"
   | "merged"
   | "replaced"
-  | "suggestion_dismissed";
+  | "suggestion_dismissed"
+  | "completed"
+  | "dropped"
+  | "reopened"
+  | "scheduled"
+  | "reminded"
+  /** Said again later: the new evidence was added to this memory instead of a duplicate. */
+  | "mentioned_again";
 
 export interface MemoryEvent {
   id: string;
@@ -580,9 +629,19 @@ export interface BriefNote {
   follow_ups: { memory_id: string; content: string }[];
 }
 
+/** One of the user's files attached to a draft; Send attaches exactly this file. */
+export interface DraftAttachment {
+  document_id: string;
+  title: string;
+  file_name: string;
+  media_type: string;
+  size_bytes: number;
+}
+
 /** A review card for a prepared job application email. */
 export interface JobApplicationDraft {
-  linkedin_post_url: string;
+  /** The job post the draft answers, when there is one. */
+  linkedin_post_url?: string | null;
   recipient_email: string;
   subject: string;
   body: string;
@@ -591,6 +650,8 @@ export interface JobApplicationDraft {
   delivery_app: string;
   send_tool_slug: string;
   send_arguments: Record<string, unknown>;
+  /** The user's files sent with the email (older drafts have none). */
+  attachments?: DraftAttachment[];
   status: "pending" | "sending" | "sent" | "failed" | "dismissed";
   error_message?: string | null;
   sent_at?: string | null;
@@ -607,6 +668,15 @@ export interface MessageMetadata {
   brief?: BriefNote | null;
 }
 
+/** A memory a message is evidence for. */
+export interface SavedMemory {
+  memory_id: string;
+  title: string;
+  memory_type: string;
+  /** `active` once accepted (by the user or on its own); `proposed` while in To review. */
+  status: MemoryStatus;
+}
+
 export interface ChatMessage {
   id: string;
   thread_id: string;
@@ -615,6 +685,11 @@ export interface ChatMessage {
   metadata: MessageMetadata;
   created_at: string;
   updated_at: string;
+  /**
+   * On the user's messages in a listed page: what was remembered from them. Chats are read
+   * for memories a few minutes after they go quiet, so this fills in on a later load.
+   */
+  saved_memories?: SavedMemory[];
 }
 
 export interface CreateThreadBody {
@@ -836,4 +911,85 @@ export interface ConnectToolResult {
   tool: Tool;
   /** Open this to authorize the app. `null` when the app was already connected. */
   connect_url: string | null;
+}
+
+// --- Documents (files Cooper reads) ---------------------------------------------------
+
+/** PDFs, Word documents, and text files. */
+export type DocumentMediaType =
+  | "application/pdf"
+  | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  | "text/plain"
+  | "text/markdown";
+
+/** A file the user uploaded for Cooper to read when relevant. Only its text is kept. */
+export interface UserDocument {
+  id: string;
+  title: string;
+  file_name: string;
+  media_type: string;
+  size_bytes: number;
+  /** Cooper reads it for applications and questions about the user's work. */
+  is_resume: boolean;
+  /** How the text was read. */
+  extraction: "text_layer" | "docx" | "plain_text" | "vision";
+  text_chars: number;
+  page_count: number | null;
+  /** Whether the file itself is kept, so Cooper can attach it and the app can open it.
+   * False for files uploaded before files were kept: uploading the same file keeps it. */
+  has_file: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A document's original file. */
+export interface DocumentFile {
+  name: string;
+  media_type: string;
+  /** Base64 of the file's bytes. */
+  data: string;
+}
+
+export interface UploadedDocument extends UserDocument {
+  /** False when the same file was uploaded before. */
+  created: boolean;
+}
+
+export interface DocumentDetail extends UserDocument {
+  /** The text Cooper reads, as kept. */
+  text: string;
+}
+
+export interface UploadDocumentBody {
+  name: string;
+  media_type: DocumentMediaType;
+  /** Base64 of the file's bytes, without a `data:` prefix. */
+  data: string;
+}
+
+// --- Saved links (/me/links) ------------------------------------------------------------
+
+export type LinkKind = "resume" | "portfolio" | "linkedin" | "github" | "website" | "other";
+
+/** A link Cooper shares for the user, such as their resume on Google Drive. */
+export interface SavedLink {
+  id: string;
+  url: string;
+  title: string;
+  kind: LinkKind;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedLinkResult extends SavedLink {
+  /** False when the address was saved before; its title and kind were updated. */
+  created: boolean;
+}
+
+export interface SaveLinkBody {
+  /** A web address; https:// is added when no scheme is given. */
+  url: string;
+  title?: string | null;
+  /** Guessed from the title and the site when not given. */
+  kind?: LinkKind | null;
 }

@@ -126,7 +126,8 @@ export function historyText(event: MemoryEvent): string {
         ? 'You saved it from a message Cooper held back'
         : 'You wrote it';
     case 'accepted':
-      return 'You accepted it';
+      // The pipeline accepts what it is sure of: confident, not sensitive, your own words.
+      return details.by === 'pipeline' ? 'Saved on its own: Cooper was sure' : 'You accepted it';
     case 'retracted':
       return 'You marked it as wrong';
     case 'restored':
@@ -154,6 +155,8 @@ export function historyText(event: MemoryEvent): string {
       return `Replaced ${quoted(details.content)}`;
     case 'suggestion_dismissed':
       return 'You kept it apart from a similar memory';
+    case 'mentioned_again':
+      return `You said it again: ${quoted(details.content)}`;
     default:
       return 'Changed';
   }

@@ -1,10 +1,11 @@
 /**
  * ProactiveSettings Component
  *
- * The Notifications screen's settings for what Cooper sends on its own:
+ * The Notifications screen's settings for what Cooper sends on its own, as inset-grouped
+ * sections, each explained in its footer:
  *
  * - Daily brief: on or off, and at what time (local). Turning it on also saves the
- *   phone's timezone. "Preview" shows today's brief as it stands.
+ *   phone's timezone. "Preview" shows today's brief as it stands, in a sheet.
  * - Reminders: push for reminders the user set (they are posted in chat either way).
  * - Quiet hours: no brief notification between two times; the brief still appears in chat.
  *
@@ -12,19 +13,12 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { MarkdownText } from '@/components/chat/MarkdownText';
 import { TimeField } from '@/components/tasks/DateTimeFields';
+import { AppSwitch, AppText, BottomSheet, Card, ListRow, ListSection } from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { ScreenMargin } from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { getErrorMessage, isAbortError } from '@/lib/api/client';
 import { getBriefPreview } from '@/lib/api/life';
@@ -68,6 +62,9 @@ export function ProactiveSettings() {
   };
 
   const openPreview = async () => {
+    // The previous preview is cleared here rather than on close, so the sheet keeps its
+    // content while it slides away.
+    setPreview(null);
     setIsPreviewing(true);
     try {
       setPreview(await getBriefPreview());
@@ -78,248 +75,176 @@ export function ProactiveSettings() {
   };
 
   if (error) {
-    return <Text style={styles.errorText}>{error}</Text>;
+    return (
+      <AppText variant="footnote" color="destructive" style={styles.standalone}>
+        {error}
+      </AppText>
+    );
   }
   if (!me) {
-    return <ActivityIndicator color={Colors.primary} />;
+    return <ActivityIndicator color={Colors.secondaryLabel} style={styles.standalone} />;
   }
 
   const quiet = me.quiet_hours_start !== null && me.quiet_hours_end !== null;
 
   return (
-    <View style={styles.groupCard}>
-      <View style={styles.settingRow}>
-        <View style={styles.settingText}>
-          <Text style={styles.settingTitle}>Daily brief</Text>
-          <Text style={styles.settingDescription}>
-            Each morning in chat: what&apos;s due, what&apos;s overdue, and yesterday&apos;s items
-            to check off.
-          </Text>
-        </View>
-        <Switch
-          value={me.brief_enabled}
-          onValueChange={(value) =>
-            save(
-              value
-                ? { brief_enabled: true, timezone: deviceTimezone() }
-                : { brief_enabled: false },
-              { brief_enabled: value }
-            )
+    <>
+      <ListSection footer="Each morning in chat: what's due, what's overdue, and yesterday's items to check off.">
+        <ListRow
+          title="Daily brief"
+          accessory={
+            <AppSwitch
+              value={me.brief_enabled}
+              onValueChange={(value) =>
+                save(
+                  value
+                    ? { brief_enabled: true, timezone: deviceTimezone() }
+                    : { brief_enabled: false },
+                  { brief_enabled: value }
+                )
+              }
+              disabled={isSaving}
+              accessibilityLabel="Daily brief"
+            />
           }
-          disabled={isSaving}
-          trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-          thumbColor={me.brief_enabled ? Colors.primary : Colors.surfaceMuted}
-          accessibilityLabel="Daily brief"
         />
-      </View>
-      {me.brief_enabled ? (
-        <View style={styles.subRow}>
-          <Text style={styles.subLabel}>At</Text>
-          <TimeField
-            value={me.brief_time}
-            onChange={(value) => save({ brief_time: value }, { brief_time: value })}
-            accessibilityLabel="Brief time"
-          />
-          <TouchableOpacity onPress={openPreview} activeOpacity={0.7}>
-            <Text style={styles.linkText}>Preview</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
+        {me.brief_enabled ? (
+          <TimeRow label="Time">
+            <TimeField
+              value={me.brief_time}
+              onChange={(value) => save({ brief_time: value }, { brief_time: value })}
+              accessibilityLabel="Brief time"
+            />
+          </TimeRow>
+        ) : null}
+        {me.brief_enabled ? <ListRow title="Preview" action onPress={openPreview} /> : null}
+      </ListSection>
 
-      <View style={styles.divider} />
-
-      <View style={styles.settingRow}>
-        <View style={styles.settingText}>
-          <Text style={styles.settingTitle}>Reminders</Text>
-          <Text style={styles.settingDescription}>
-            Notify me when a reminder I set is due. It appears in chat either way.
-          </Text>
-        </View>
-        <Switch
-          value={me.reminders_enabled}
-          onValueChange={(value) =>
-            save({ reminders_enabled: value }, { reminders_enabled: value })
+      <ListSection footer="Notify me when a reminder I set is due. It appears in chat either way.">
+        <ListRow
+          title="Reminders"
+          accessory={
+            <AppSwitch
+              value={me.reminders_enabled}
+              onValueChange={(value) =>
+                save({ reminders_enabled: value }, { reminders_enabled: value })
+              }
+              disabled={isSaving}
+              accessibilityLabel="Reminders"
+            />
           }
-          disabled={isSaving}
-          trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-          thumbColor={me.reminders_enabled ? Colors.primary : Colors.surfaceMuted}
-          accessibilityLabel="Reminders"
         />
-      </View>
+      </ListSection>
 
-      <View style={styles.divider} />
-
-      <View style={styles.settingRow}>
-        <View style={styles.settingText}>
-          <Text style={styles.settingTitle}>Quiet hours</Text>
-          <Text style={styles.settingDescription}>
-            No brief notification during these hours. Reminders you set still come through.
-          </Text>
-        </View>
-        <Switch
-          value={quiet}
-          onValueChange={(value) =>
-            save(
-              value
-                ? { quiet_hours_start: DEFAULT_QUIET.start, quiet_hours_end: DEFAULT_QUIET.end }
-                : { quiet_hours_start: null, quiet_hours_end: null },
-              value
-                ? { quiet_hours_start: DEFAULT_QUIET.start, quiet_hours_end: DEFAULT_QUIET.end }
-                : { quiet_hours_start: null, quiet_hours_end: null }
-            )
+      <ListSection footer="No brief notification during these hours. Reminders you set still come through.">
+        <ListRow
+          title="Quiet hours"
+          accessory={
+            <AppSwitch
+              value={quiet}
+              onValueChange={(value) =>
+                save(
+                  value
+                    ? { quiet_hours_start: DEFAULT_QUIET.start, quiet_hours_end: DEFAULT_QUIET.end }
+                    : { quiet_hours_start: null, quiet_hours_end: null },
+                  value
+                    ? { quiet_hours_start: DEFAULT_QUIET.start, quiet_hours_end: DEFAULT_QUIET.end }
+                    : { quiet_hours_start: null, quiet_hours_end: null }
+                )
+              }
+              disabled={isSaving}
+              accessibilityLabel="Quiet hours"
+            />
           }
-          disabled={isSaving}
-          trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-          thumbColor={quiet ? Colors.primary : Colors.surfaceMuted}
-          accessibilityLabel="Quiet hours"
         />
-      </View>
-      {quiet ? (
-        <View style={styles.subRow}>
-          <Text style={styles.subLabel}>From</Text>
-          <TimeField
-            value={me.quiet_hours_start ?? DEFAULT_QUIET.start}
-            onChange={(value) =>
-              save(
-                { quiet_hours_start: value, quiet_hours_end: me.quiet_hours_end },
-                { quiet_hours_start: value }
-              )
-            }
-            accessibilityLabel="Quiet hours start"
-          />
-          <Text style={styles.subLabel}>to</Text>
-          <TimeField
-            value={me.quiet_hours_end ?? DEFAULT_QUIET.end}
-            onChange={(value) =>
-              save(
-                { quiet_hours_start: me.quiet_hours_start, quiet_hours_end: value },
-                { quiet_hours_end: value }
-              )
-            }
-            accessibilityLabel="Quiet hours end"
-          />
-        </View>
-      ) : null}
+        {quiet ? (
+          <TimeRow label="From">
+            <TimeField
+              value={me.quiet_hours_start ?? DEFAULT_QUIET.start}
+              onChange={(value) =>
+                save(
+                  { quiet_hours_start: value, quiet_hours_end: me.quiet_hours_end },
+                  { quiet_hours_start: value }
+                )
+              }
+              accessibilityLabel="Quiet hours start"
+            />
+          </TimeRow>
+        ) : null}
+        {quiet ? (
+          <TimeRow label="To">
+            <TimeField
+              value={me.quiet_hours_end ?? DEFAULT_QUIET.end}
+              onChange={(value) =>
+                save(
+                  { quiet_hours_start: me.quiet_hours_start, quiet_hours_end: value },
+                  { quiet_hours_end: value }
+                )
+              }
+              accessibilityLabel="Quiet hours end"
+            />
+          </TimeRow>
+        ) : null}
+      </ListSection>
 
-      <Modal
+      <BottomSheet
         visible={isPreviewing}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsPreviewing(false)}>
-        <View style={styles.previewOverlay}>
-          <View style={styles.previewCard}>
-            <Text style={styles.previewTitle}>Today&apos;s brief</Text>
-            {preview ? (
-              <ScrollView style={styles.previewBody}>
-                <MarkdownText text={preview.text} />
-              </ScrollView>
-            ) : (
-              <ActivityIndicator color={Colors.primary} />
-            )}
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => {
-                setIsPreviewing(false);
-                setPreview(null);
-              }}
-              activeOpacity={0.8}>
-              <Text style={styles.closeText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setIsPreviewing(false)}
+        title="Today's brief"
+        rightAction={{ label: 'Done', onPress: () => setIsPreviewing(false) }}
+        scrollable>
+        {preview ? (
+          <Card style={styles.previewCard}>
+            <MarkdownText text={preview.text} />
+          </Card>
+        ) : (
+          <ActivityIndicator color={Colors.secondaryLabel} style={styles.previewSpinner} />
+        )}
+      </BottomSheet>
+    </>
+  );
+}
+
+/**
+ * A cell with a label at the left and a time field at the right. The field wraps to its
+ * own line when it grows (iOS shows its spinner inline).
+ */
+function TimeRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.timeRow}>
+      <AppText variant="body" style={styles.timeLabel}>
+        {label}
+      </AppText>
+      {children}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  groupCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
-    overflow: 'hidden',
+  standalone: {
+    marginHorizontal: ScreenMargin * 2,
+    marginBottom: 28,
   },
-  settingRow: {
+  timeRow: {
+    minHeight: 48,
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  settingText: {
-    flex: 1,
-  },
-  settingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
-  },
-  settingDescription: {
-    marginTop: 3,
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.textSecondary,
-  },
-  subRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
     paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingVertical: 8,
+    backgroundColor: Colors.secondaryGroupedBackground,
   },
-  subLabel: {
-    fontSize: 13.5,
-    color: Colors.textSecondary,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.borderLight,
-    marginHorizontal: 16,
-  },
-  linkText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  errorText: {
-    fontSize: 13.5,
-    color: Colors.error,
-  },
-  previewOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'center',
-    padding: 24,
+  timeLabel: {
+    flexGrow: 1,
   },
   previewCard: {
-    maxHeight: '80%',
-    backgroundColor: Colors.white,
-    borderRadius: 20,
-    padding: 18,
-    gap: 12,
+    marginHorizontal: ScreenMargin,
+    marginBottom: 8,
   },
-  previewTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.iconDark,
-  },
-  previewBody: {
-    flexGrow: 0,
-  },
-  closeButton: {
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.iconDark,
+  previewSpinner: {
+    marginVertical: 32,
   },
 });
 

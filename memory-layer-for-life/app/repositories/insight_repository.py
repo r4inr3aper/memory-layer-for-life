@@ -4,11 +4,11 @@ and the users' feedback."""
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Float, case, cast, func, select
+from sqlalchemy import Float, case, cast, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.db.base import new_uuid
-from app.domain.enums import EntityStatus, InsightKind, MemoryStatus, MemoryType
+from app.domain.enums import EntityStatus, EntityType, InsightKind, MemoryStatus, MemoryType
 from app.models.entity import Entity
 from app.models.insight_feedback import InsightFeedback
 from app.models.memory import Memory
@@ -16,6 +16,11 @@ from app.models.memory_entity import MemoryEntity
 from app.repositories.base import BaseRepository
 
 _LIVE = sorted(status.value for status in (MemoryStatus.PROPOSED, MemoryStatus.ACTIVE))
+# Memories that name people without saying anything about the user and them: shorthand
+# next to an amount ("raju biryani"), saved links, working notes.
+_NOT_ABOUT_PEOPLE = sorted(
+    kind.value for kind in (MemoryType.FINANCIAL_NOTE, MemoryType.RESOURCE, MemoryType.NOTE)
+)
 
 
 class InsightRepository(BaseRepository):
@@ -45,7 +50,8 @@ class InsightRepository(BaseRepository):
     async def mentions(
         self, owner_id: uuid.UUID, *, since: datetime
     ) -> list[tuple[uuid.UUID, uuid.UUID, str, str, datetime]]:
-        """Live memories mentioning active entities: (memory, entity, name, type, when)."""
+        """Live memories mentioning active entities: (memory, entity, name, type, when).
+        A person counts only in memories about the user and them (``_NOT_ABOUT_PEOPLE``)."""
         happened = func.coalesce(Memory.observed_at, Memory.created_at)
         rows = await self._session.execute(
             select(Memory.id, Entity.id, Entity.canonical_name, Entity.entity_type, happened)
@@ -56,6 +62,10 @@ class InsightRepository(BaseRepository):
                 Memory.status.in_(_LIVE),
                 Entity.status == EntityStatus.ACTIVE.value,
                 happened >= since,
+                or_(
+                    Entity.entity_type != EntityType.PERSON.value,
+                    Memory.memory_type.not_in(_NOT_ABOUT_PEOPLE),
+                ),
             )
             .order_by(happened)
         )

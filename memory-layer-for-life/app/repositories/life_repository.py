@@ -7,10 +7,14 @@ from datetime import date, datetime
 
 from sqlalchemy import ColumnElement, and_, func, or_, select, update
 
-from app.domain.enums import MemoryState, MemoryStatus
+from app.domain.enums import EntityStatus, EntityType, MemoryState, MemoryStatus, MessageSource
 from app.domain.life_state import ACTIONABLE_TYPES, LONG_TERM_TYPES
 from app.models.app_user import AppUser
+from app.models.entity import Entity
 from app.models.memory import Memory, is_sensitive
+from app.models.memory_entity import MemoryEntity
+from app.models.memory_source import MemorySource
+from app.models.raw_message import RawMessage
 from app.repositories.base import BaseRepository
 
 _LIVE = sorted(status.value for status in (MemoryStatus.PROPOSED, MemoryStatus.ACTIVE))
@@ -52,6 +56,34 @@ class LifeRepository(BaseRepository):
             .limit(limit)
         )
         return list(rows)
+
+    async def imported(self, memory_ids: Collection[uuid.UUID]) -> set[uuid.UUID]:
+        """Which of these memories rest on an imported chat (a WhatsApp export)."""
+        if not memory_ids:
+            return set()
+        rows = await self._session.scalars(
+            select(MemorySource.memory_id)
+            .join(RawMessage, RawMessage.id == MemorySource.raw_message_id)
+            .where(
+                MemorySource.memory_id.in_(memory_ids),
+                RawMessage.source == MessageSource.WHATSAPP_IMPORT.value,
+            )
+            .distinct()
+        )
+        return set(rows)
+
+    async def count_proposed_since(self, owner_id: uuid.UUID, since: datetime) -> int:
+        """The owner's memories waiting for review that were made since ``since``."""
+        total = await self._session.scalar(
+            select(func.count())
+            .select_from(Memory)
+            .where(
+                Memory.owner_id == owner_id,
+                Memory.status == MemoryStatus.PROPOSED.value,
+                Memory.created_at >= since,
+            )
+        )
+        return int(total or 0)
 
     async def reminders(
         self, owner_id: uuid.UUID, *, include_sensitive: bool, before: datetime | None = None
@@ -139,5 +171,109 @@ class LifeRepository(BaseRepository):
             return []
         rows = await self._session.scalars(
             select(Memory).where(Memory.owner_id == owner_id, Memory.id.in_(memory_ids))
+        )
+        return list(rows)
+
+    # --- Today (ADR-048) ---------------------------------------------------------------
+
+    async def people_linked(self, memory_ids: Collection[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
+        """The names of the people each of these memories involves."""
+        if not memory_ids:
+            return {}
+        rows = await self._session.execute(
+            select(MemoryEntity.memory_id, Entity.canonical_name)
+            .join(Entity, Entity.id == MemoryEntity.entity_id)
+            .where(
+                MemoryEntity.memory_id.in_(memory_ids),
+                Entity.entity_type == EntityType.PERSON.value,
+                Entity.status == EntityStatus.ACTIVE.value,
+            )
+            .order_by(Entity.canonical_name)
+        )
+        linked: dict[uuid.UUID, list[str]] = {}
+        for memory_id, name in rows:
+            linked.setdefault(memory_id, []).append(name)
+        return linked
+
+    async def people(self, owner_id: uuid.UUID) -> dict[uuid.UUID, str]:
+        """The owner's people, by id."""
+        rows = await self._session.execute(
+            select(Entity.id, Entity.canonical_name).where(
+                Entity.owner_id == owner_id,
+                Entity.entity_type == EntityType.PERSON.value,
+                Entity.status == EntityStatus.ACTIVE.value,
+            )
+        )
+        return {entity_id: name for entity_id, name in rows}
+
+    async def memories_about(
+        self,
+        owner_id: uuid.UUID,
+        entity_ids: Collection[uuid.UUID],
+        *,
+        exclude: Collection[uuid.UUID],
+        include_sensitive: bool,
+        limit: int,
+    ) -> list[Memory]:
+        """The owner's newest live memories mentioning any of these entities."""
+        if not entity_ids:
+            return []
+        conditions = [
+            Memory.owner_id == owner_id,
+            Memory.status.in_(_LIVE),
+            Memory.id.in_(
+                select(MemoryEntity.memory_id).where(MemoryEntity.entity_id.in_(entity_ids))
+            ),
+        ]
+        if exclude:
+            conditions.append(Memory.id.not_in(exclude))
+        if not include_sensitive:
+            conditions.append(~is_sensitive())
+        rows = await self._session.scalars(
+            select(Memory)
+            .where(*conditions)
+            .order_by(Memory.created_at.desc(), Memory.id.desc())
+            .limit(limit)
+        )
+        return list(rows)
+
+    async def resurfacing(
+        self,
+        owner_id: uuid.UUID,
+        *,
+        kinds: Collection[str],
+        created_between: tuple[datetime, datetime],
+        untouched_since: datetime,
+    ) -> list[uuid.UUID]:
+        """The owner's live, open memories of these kinds noted within the window and not
+        touched since ``untouched_since``."""
+        start, end = created_between
+        rows = await self._session.scalars(
+            select(Memory.id).where(
+                Memory.owner_id == owner_id,
+                Memory.status.in_(_LIVE),
+                Memory.closed_at.is_(None),
+                Memory.memory_type.in_(sorted(kinds)),
+                Memory.created_at >= start,
+                Memory.created_at < end,
+                Memory.updated_at < untouched_since,
+                Memory.metadata_["state"].astext.is_distinct_from(MemoryState.DONE.value),
+            )
+        )
+        return list(rows)
+
+    async def recent_proposed(
+        self, owner_id: uuid.UUID, *, since: datetime, limit: int
+    ) -> list[Memory]:
+        """The owner's newest memories waiting for review, made since ``since``."""
+        rows = await self._session.scalars(
+            select(Memory)
+            .where(
+                Memory.owner_id == owner_id,
+                Memory.status == MemoryStatus.PROPOSED.value,
+                Memory.created_at >= since,
+            )
+            .order_by(Memory.created_at.desc(), Memory.id.desc())
+            .limit(limit)
         )
         return list(rows)

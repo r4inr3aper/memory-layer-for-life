@@ -28,7 +28,6 @@ from app.domain.enums import (
     SourceRole,
     SuggestionKind,
 )
-from app.domain.run_state import ensure_transition
 from app.domain.errors import RecordNotFoundError
 from app.domain.memory_review import (
     LIVE_STATUSES,
@@ -40,6 +39,7 @@ from app.domain.memory_review import (
     strength,
 )
 from app.domain.principal import Principal
+from app.domain.run_state import ensure_transition
 from app.integrations.embeddings.base import EmbeddingSpace
 from app.models.memory_source import MemorySource
 from app.models.raw_message import RawMessage

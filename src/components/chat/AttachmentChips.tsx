@@ -1,16 +1,19 @@
 /**
  * AttachmentChips Component
  *
- * Removable chips above the chat input for the files attached to the next message.
+ * Removable chips above the chat composer for the files attached to the next message:
+ * a glyph, the file's name and size on a light gray tile, and a small round remove button.
  */
 
+import { AppText, IconButton } from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { Radius, continuous } from '@/constants/theme';
 import type { PendingAttachment } from '@/lib/attachmentPicker';
 import { formatFileSize } from '@/lib/attachments';
 import { Cancel01Icon, Image01Icon, Pdf01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 export interface AttachmentChipsProps {
   attachments: PendingAttachment[];
@@ -30,27 +33,31 @@ export function AttachmentChips({ attachments, onRemove }: AttachmentChipsProps)
       style={styles.scroll}
       contentContainerStyle={styles.row}>
       {attachments.map((attachment) => (
-        <View key={attachment.id} style={styles.chip}>
+        <View key={attachment.id} style={[styles.chip, continuous]}>
           <HugeiconsIcon
             icon={attachment.media_type === 'application/pdf' ? Pdf01Icon : Image01Icon}
-            size={16}
-            color={Colors.primary}
+            size={18}
+            color={Colors.tint}
             strokeWidth={2}
           />
           <View style={styles.chipText}>
-            <Text style={styles.chipName} numberOfLines={1}>
+            <AppText variant="footnote" weight="600" numberOfLines={1}>
               {attachment.name}
-            </Text>
-            <Text style={styles.chipSize}>{formatFileSize(attachment.size)}</Text>
+            </AppText>
+            <AppText variant="caption2" color="secondary">
+              {formatFileSize(attachment.size)}
+            </AppText>
           </View>
-          <TouchableOpacity
+          <IconButton
+            icon={Cancel01Icon}
+            variant="filled"
+            size={22}
+            iconSize={12}
+            color={Colors.secondaryLabel}
             style={styles.removeBtn}
             onPress={() => onRemove(attachment.id)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel={`Remove ${attachment.name}`}>
-            <HugeiconsIcon icon={Cancel01Icon} size={14} color={Colors.iconMuted} strokeWidth={2.2} />
-          </TouchableOpacity>
+            accessibilityLabel={`Remove ${attachment.name}`}
+          />
         </View>
       ))}
     </ScrollView>
@@ -68,36 +75,20 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
     maxWidth: 220,
     paddingLeft: 10,
     paddingRight: 6,
-    paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
-    backgroundColor: Colors.inputBarBg,
-    gap: 8,
+    paddingVertical: 7,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.groupedBackground,
   },
   chipText: {
     flexShrink: 1,
   },
-  chipName: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  chipSize: {
-    fontSize: 11,
-    color: Colors.iconMuted,
-    marginTop: 1,
-  },
   removeBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.white,
+    // A step darker than the tile, so the button reads on it.
+    backgroundColor: Colors.fill,
   },
 });
 

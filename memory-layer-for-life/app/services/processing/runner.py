@@ -14,6 +14,13 @@ without writing. Unique constraints on the derived records back this up at the d
 level.
 
 Raw messages are never touched here. Whatever happens to a run, its input is intact.
+
+For an app user's units, persisting applies the memory policy (ADR-048,
+``app.domain.memory_policy``): a memory the user already has gets the new evidence instead
+of a duplicate, and a memory the pipeline is sure of is accepted without review. A
+conversation with the assistant in which nothing was worth remembering simply succeeds:
+it is not held back for the user to look at. The operator's own store keeps the original
+rule that the pipeline only proposes (ADR-018).
 """
 
 import asyncio
@@ -21,7 +28,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -29,14 +36,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.clock import Clock, utc_now
 from app.db.base import new_uuid
 from app.db.session import transaction
+from app.domain import memory_policy
 from app.domain.enums import (
     ExtractionDisposition,
     ExtractionStatus,
     LlmCallOrigin,
     MemoryEntityRelation,
+    MemoryEventAction,
+    MemoryStatus,
+    MemoryType,
+    MessageSource,
     PipelineStage,
     ProcessingStatus,
     RunEventType,
+    Sensitivity,
+    SourceRole,
 )
 from app.domain.errors import ExtractionError, InvalidExtractionOutputError
 from app.domain.normalization import locate_span
@@ -54,10 +68,10 @@ from app.models.raw_message import RawMessage
 from app.repositories.entity_repository import EntityRepository
 from app.repositories.memory_repository import MemoryRepository
 from app.repositories.processing_run_repository import ProcessingRunRepository
-from app.schemas.extraction import ExtractionPayload
+from app.schemas.extraction import ExtractionOutput, ExtractionPayload
 from app.services.pacing import ALWAYS_ON, BackgroundPacer
 from app.services.processing.extraction import ExtractionStage
-from app.services.processing.memory_builder import MemoryBuilder, MemoryDraft
+from app.services.processing.memory_builder import MemoryBuilder, MemoryDraft, SourceDraft
 from app.services.processing.resolution import EntityResolver
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +82,7 @@ LEASE_EXPIRED_CODE = "LEASE_EXPIRED"
 _ABSTAIN_DETAIL = (
     "The extractor abstained: the unit does not carry enough information for a reliable memory."
 )
+_NOTHING_TO_REMEMBER_DETAIL = "Nothing in this conversation was worth remembering."
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +90,28 @@ class RunnerConfig:
     retry_policy: RetryPolicy
     lease: timedelta
     timezone_name: str
+    # Accept app users' memories the pipeline is sure of (ADR-048).
+    auto_accept: bool = True
+
+
+class MaterializeHook(Protocol):
+    """Work that belongs with a unit's results, done in the same transaction, such as
+    naming the chat a conversation came from. Called whenever a unit succeeds, including a
+    conversation in which nothing was worth remembering."""
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        output: ExtractionOutput,
+        messages: Sequence[RawMessage],
+    ) -> None: ...
+
+
+@dataclass(slots=True)
+class _Persisted:
+    created: int = 0
+    accepted: int = 0
+    mentioned_again: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,11 +155,13 @@ class PipelineRunner:
         extractor: Extractor | None,
         *,
         config: RunnerConfig,
+        hooks: Sequence[MaterializeHook] = (),
         clock: Clock = utc_now,
     ) -> None:
         self._session_factory = session_factory
         self._extractor = extractor
         self._config = config
+        self._hooks = tuple(hooks)
         self._clock = clock
         self._builder = MemoryBuilder()
         self._extraction = (
@@ -304,7 +343,11 @@ class PipelineRunner:
             runs = ProcessingRunRepository(session)
             run = self._owned(await runs.get_for_update(claim.run_id), claim)
             now = self._clock()
-            abstained = response.output.disposition is ExtractionDisposition.ABSTAIN
+            # In a conversation, nothing to remember is the usual, correct answer.
+            abstained = (
+                response.output.disposition is ExtractionDisposition.ABSTAIN
+                and not _is_conversation(messages)
+            )
             result = await runs.add_extraction_result(
                 ExtractionResult(
                     id=new_uuid(),
@@ -343,6 +386,13 @@ class PipelineRunner:
             now = self._clock()
 
             if output.disposition is ExtractionDisposition.ABSTAIN:
+                if _is_conversation(messages):
+                    await self._run_hooks(session, output, messages)
+                    self._finish(run, ProcessingStatus.SUCCEEDED, now)
+                    await runs.add_event(
+                        run, RunEventType.SUCCEEDED, now=now, detail=_NOTHING_TO_REMEMBER_DETAIL
+                    )
+                    return ProcessingStatus.SUCCEEDED
                 self._finish(run, ProcessingStatus.NEEDS_REVIEW, now)
                 await runs.add_event(
                     run, RunEventType.NEEDS_REVIEW, now=now, detail=_ABSTAIN_DETAIL
@@ -384,15 +434,28 @@ class PipelineRunner:
             drafts = self._builder.build(output, messages, resolved_entities)
 
             progress.stage = PipelineStage.PERSIST
-            await self._persist_memories(session, drafts, extraction_result_id, owner_id, now)
+            if owner_id is None:
+                await self._persist_memories(session, drafts, extraction_result_id, owner_id, now)
+                detail = f"{len(drafts)} memories and {len(mentions)} entity mentions stored."
+            else:
+                persisted = await self._persist_owned(
+                    session,
+                    drafts,
+                    extraction_result_id=extraction_result_id,
+                    owner_id=owner_id,
+                    disposition=output.disposition,
+                    messages=messages,
+                    now=now,
+                )
+                detail = (
+                    f"{persisted.created} memories stored ({persisted.accepted} accepted on "
+                    f"their own), {persisted.mentioned_again} already known, and "
+                    f"{len(mentions)} entity mentions stored."
+                )
+            await self._run_hooks(session, output, messages)
 
             self._finish(run, ProcessingStatus.SUCCEEDED, now)
-            await runs.add_event(
-                run,
-                RunEventType.SUCCEEDED,
-                now=now,
-                detail=f"{len(drafts)} memories and {len(mentions)} entity mentions stored.",
-            )
+            await runs.add_event(run, RunEventType.SUCCEEDED, now=now, detail=detail)
             return ProcessingStatus.SUCCEEDED
 
     async def _persist_memories(
@@ -408,50 +471,91 @@ class PipelineRunner:
         sources: list[MemorySource] = []
         links: list[MemoryEntity] = []
         for draft in drafts:
-            memory_id = new_uuid()
-            memories.append(
-                Memory(
-                    id=memory_id,
-                    memory_type=draft.memory_type,
-                    content=draft.content,
-                    normalized_content=draft.normalized_content,
-                    status=draft.status.value,
-                    confidence=draft.confidence,
-                    observed_at=draft.observed_at,
-                    due_on=draft.due_on,
-                    origin_extraction_result_id=extraction_result_id,
-                    origin_ordinal=draft.ordinal,
-                    metadata_=draft.metadata,
-                    owner_id=owner_id,
-                    created_at=now,
-                    updated_at=now,
-                )
+            memory, memory_sources, memory_links = _memory_rows(
+                draft,
+                status=draft.status,
+                extraction_result_id=extraction_result_id,
+                owner_id=owner_id,
+                now=now,
             )
-            sources.extend(
-                MemorySource(
-                    id=new_uuid(),
-                    memory_id=memory_id,
-                    raw_message_id=source.raw_message_id,
-                    extraction_result_id=extraction_result_id,
-                    evidence_text=source.evidence_text,
-                    source_role=source.source_role.value,
-                    created_at=now,
-                )
-                for source in draft.sources
-            )
-            links.extend(
-                MemoryEntity(
-                    memory_id=memory_id,
-                    entity_id=entity_id,
-                    relationship_type=MemoryEntityRelation.MENTIONS.value,
-                    created_at=now,
-                )
-                for entity_id in draft.entity_ids
-            )
+            memories.append(memory)
+            sources.extend(memory_sources)
+            links.extend(memory_links)
         # Parents first: sources and links reference the memories.
         await repository.add_memories(memories)
         await repository.add_sources(sources)
         await repository.add_entity_links(links)
+
+    async def _persist_owned(
+        self,
+        session: AsyncSession,
+        drafts: Sequence[MemoryDraft],
+        *,
+        extraction_result_id: uuid.UUID,
+        owner_id: uuid.UUID,
+        disposition: ExtractionDisposition,
+        messages: Sequence[RawMessage],
+        now: datetime,
+    ) -> _Persisted:
+        """Persist an app user's drafts under the memory policy (ADR-048).
+
+        Each draft is compared with the user's live memories, and with the drafts of this
+        unit saved before it. A memory the user already has gets the draft's evidence and a
+        ``mentioned_again`` entry in its history, instead of a duplicate. Otherwise the
+        draft becomes a new memory, accepted on its own when the pipeline is sure of it.
+        """
+        repository = MemoryRepository(session)
+        by_id = {message.id: message for message in messages}
+        persisted = _Persisted()
+        saved: list[MemoryDraft] = []
+        touched: set[uuid.UUID] = set()
+        for draft in drafts:
+            accept = self._config.auto_accept and memory_policy.auto_accept(
+                confidence=draft.confidence,
+                sensitive=draft.metadata.get("sensitivity") == Sensitivity.SENSITIVE.value,
+                disposition=disposition,
+                own_words=_own_words(draft, by_id),
+            )
+            links = memory_policy.urls_in(draft.content)
+            if any(_same_draft(draft, links, other) for other in saved):
+                persisted.mentioned_again += 1
+                continue
+            known = await _known_memory(repository, owner_id, draft, links)
+            if known is not None:
+                if known.id not in touched:
+                    touched.add(known.id)
+                    await _mention_again(
+                        repository, known, draft, extraction_result_id, accept=accept, now=now
+                    )
+                persisted.mentioned_again += 1
+                continue
+
+            status = MemoryStatus.ACTIVE if accept else MemoryStatus.PROPOSED
+            memory, sources, entity_links = _memory_rows(
+                draft,
+                status=status,
+                extraction_result_id=extraction_result_id,
+                owner_id=owner_id,
+                now=now,
+            )
+            # Parents first: sources and links reference the memory.
+            await repository.add_memories([memory])
+            await repository.add_sources(sources)
+            await repository.add_entity_links(entity_links)
+            if accept:
+                await repository.add_event(
+                    memory.id, MemoryEventAction.ACCEPTED, now=now, details=_AUTO_ACCEPTED
+                )
+                persisted.accepted += 1
+            saved.append(draft)
+            persisted.created += 1
+        return persisted
+
+    async def _run_hooks(
+        self, session: AsyncSession, output: ExtractionOutput, messages: Sequence[RawMessage]
+    ) -> None:
+        for hook in self._hooks:
+            await hook(session, output, messages)
 
     async def _settle_failure(
         self,
@@ -551,6 +655,164 @@ def _operational_metadata(
     return metadata
 
 
+_AUTO_ACCEPTED: dict[str, Any] = {"by": "pipeline", "rule": memory_policy.AUTO_ACCEPT_RULE}
+
+
+def _memory_rows(
+    draft: MemoryDraft,
+    *,
+    status: MemoryStatus,
+    extraction_result_id: uuid.UUID,
+    owner_id: uuid.UUID | None,
+    now: datetime,
+) -> tuple[Memory, list[MemorySource], list[MemoryEntity]]:
+    """A draft as the rows that store it: the memory, its provenance, its entity links."""
+    memory_id = new_uuid()
+    memory = Memory(
+        id=memory_id,
+        memory_type=draft.memory_type,
+        content=draft.content,
+        normalized_content=draft.normalized_content,
+        status=status.value,
+        confidence=draft.confidence,
+        observed_at=draft.observed_at,
+        due_on=draft.due_on,
+        origin_extraction_result_id=extraction_result_id,
+        origin_ordinal=draft.ordinal,
+        metadata_=draft.metadata,
+        owner_id=owner_id,
+        created_at=now,
+        updated_at=now,
+    )
+    sources = [
+        MemorySource(
+            id=new_uuid(),
+            memory_id=memory_id,
+            raw_message_id=source.raw_message_id,
+            extraction_result_id=extraction_result_id,
+            evidence_text=source.evidence_text,
+            source_role=source.source_role.value,
+            created_at=now,
+        )
+        for source in draft.sources
+    ]
+    links = [
+        MemoryEntity(
+            memory_id=memory_id,
+            entity_id=entity_id,
+            relationship_type=MemoryEntityRelation.MENTIONS.value,
+            created_at=now,
+        )
+        for entity_id in draft.entity_ids
+    ]
+    return memory, sources, links
+
+
+def _supporting(draft: MemoryDraft) -> list[SourceDraft]:
+    """The messages a draft rests on; all of the unit's when no quote could be verified."""
+    supporting = [source for source in draft.sources if source.source_role is SourceRole.SUPPORTING]
+    return supporting or list(draft.sources)
+
+
+def _own_words(draft: MemoryDraft, messages: dict[uuid.UUID, RawMessage]) -> bool:
+    """Whether every message the draft rests on is the user speaking."""
+    return all(
+        memory_policy.is_own_words(
+            MessageSource(messages[source.raw_message_id].source),
+            messages[source.raw_message_id].content,
+        )
+        for source in _supporting(draft)
+    )
+
+
+def _same_draft(draft: MemoryDraft, links: frozenset[str], other: MemoryDraft) -> bool:
+    """Whether two drafts of one unit are the same memory: same kind, and the same words
+    or a shared link."""
+    memory_type = MemoryType(draft.memory_type)
+    if memory_type in memory_policy.NEVER_MERGED or draft.memory_type != other.memory_type:
+        return False
+    if draft.normalized_content == other.normalized_content:
+        return True
+    return bool(links & memory_policy.urls_in(other.content))
+
+
+async def _known_memory(
+    repository: MemoryRepository,
+    owner_id: uuid.UUID,
+    draft: MemoryDraft,
+    links: frozenset[str],
+) -> Memory | None:
+    """The live memory of the owner that says what the draft says, if there is one."""
+    memory_type = MemoryType(draft.memory_type)
+    if memory_type in memory_policy.NEVER_MERGED:
+        return None
+    candidates = await repository.same_memory_candidates(
+        owner_id,
+        memory_type=memory_type,
+        normalized_content=draft.normalized_content,
+        links=links,
+        min_similarity=memory_policy.ANCHORED_SIMILARITY,
+    )
+    for memory, similarity, shares_link in candidates:
+        if memory_policy.is_duplicate(memory_type, similarity=similarity, shares_link=shares_link):
+            return memory
+    return None
+
+
+async def _mention_again(
+    repository: MemoryRepository,
+    memory: Memory,
+    draft: MemoryDraft,
+    extraction_result_id: uuid.UUID,
+    *,
+    accept: bool,
+    now: datetime,
+) -> None:
+    """Give a memory the user already has the evidence of a draft that repeats it. A due
+    date it lacked is taken over; a memory still proposed is accepted when the new
+    reading is one the pipeline is sure of."""
+    supporting = _supporting(draft)
+    await repository.add_sources(
+        [
+            MemorySource(
+                id=new_uuid(),
+                memory_id=memory.id,
+                raw_message_id=source.raw_message_id,
+                extraction_result_id=extraction_result_id,
+                evidence_text=source.evidence_text,
+                source_role=source.source_role.value,
+                created_at=now,
+            )
+            for source in supporting
+        ]
+    )
+    await repository.add_entity_links_if_absent(memory.id, draft.entity_ids, now=now)
+    if memory.due_on is None and draft.due_on is not None:
+        memory.due_on = draft.due_on
+    memory.updated_at = now
+    await repository.add_event(
+        memory.id,
+        MemoryEventAction.MENTIONED_AGAIN,
+        now=now,
+        details={
+            "raw_message_ids": [str(source.raw_message_id) for source in supporting],
+            "content": draft.content,
+        },
+    )
+    if accept and memory.status == MemoryStatus.PROPOSED.value:
+        memory.status = MemoryStatus.ACTIVE.value
+        await repository.add_event(
+            memory.id, MemoryEventAction.ACCEPTED, now=now, details=_AUTO_ACCEPTED
+        )
+
+
+def _is_conversation(messages: Sequence[RawMessage]) -> bool:
+    """Whether a unit is the user talking to the assistant in the app."""
+    return bool(messages) and all(
+        message.source == MessageSource.APP_CHAT.value for message in messages
+    )
+
+
 def _owner_of(messages: Sequence[RawMessage]) -> uuid.UUID | None:
     """The owner of a unit's messages. Ingestion gives every message of a unit the same
     owner; a unit that somehow mixes them is refused rather than attributed to one."""
@@ -560,12 +822,21 @@ def _owner_of(messages: Sequence[RawMessage]) -> uuid.UUID | None:
     return next(iter(owners), None)
 
 
+class QuietChatCapture(Protocol):
+    """Turns chats that went quiet into units for the pipeline (``MemoryCapture``)."""
+
+    async def capture_quiet_chats(self, *, limit: int) -> int: ...
+
+    async def next_due(self) -> datetime | None: ...
+
+
 class PipelineLoop:
-    """Processes due runs every ``interval_seconds`` while the API runs: retries whose
-    backoff has passed, runs whose worker vanished, and anything captured while no
-    extractor was configured. Several processes may run it at once: each run is claimed
-    in the database. When the database should sleep, the pacer spaces passes out, except
-    while a full batch shows more work is waiting (``app.services.pacing``)."""
+    """Processes due runs every ``interval_seconds`` while the API runs: units of chats that
+    went quiet (with ``capture``), retries whose backoff has passed, runs whose worker
+    vanished, and anything captured while no extractor was configured. Several processes
+    may run it at once: each run is claimed in the database, and capturing a chat twice
+    yields the same unit. When the database should sleep, the pacer spaces passes out,
+    except while a full batch shows more work is waiting (``app.services.pacing``)."""
 
     def __init__(
         self,
@@ -573,11 +844,13 @@ class PipelineLoop:
         *,
         interval_seconds: float,
         batch_size: int,
+        capture: QuietChatCapture | None = None,
         pacer: BackgroundPacer = ALWAYS_ON,
     ) -> None:
         self._runner = runner
         self._interval_seconds = interval_seconds
         self._batch_size = batch_size
+        self._capture = capture
         self._pacer = pacer
         self._task: asyncio.Task[None] | None = None
 
@@ -592,7 +865,22 @@ class PipelineLoop:
             self._task = None
 
     async def run_once(self) -> list[RunOutcome]:
+        if self._capture is not None:
+            try:
+                captured = await self._capture.capture_quiet_chats(limit=self._batch_size)
+                if captured:
+                    logger.info("chat_capture_pass", units=captured)
+            except Exception:
+                # Capturing is retried next pass; queued runs still get processed now.
+                logger.exception("chat_capture_pass_failed")
         return await self._runner.process_available(limit=self._batch_size)
+
+    async def next_due(self) -> datetime | None:
+        """The earliest of a queued run's due time and a quiet chat's capture time."""
+        due = [await self._runner.next_due()]
+        if self._capture is not None:
+            due.append(await self._capture.next_due())
+        return min((at for at in due if at is not None), default=None)
 
     async def _loop(self) -> None:
         while True:
@@ -604,7 +892,7 @@ class PipelineLoop:
             except Exception:
                 # A failed pass must not end the loop; the next pass tries again.
                 logger.exception("pipeline_pass_failed")
-            next_due = await self._pacer.next_due(self._runner.next_due, loop="pipeline")
+            next_due = await self._pacer.next_due(self.next_due, loop="pipeline")
             await self._pacer.sleep(
                 self._interval_seconds,
                 next_due=next_due,

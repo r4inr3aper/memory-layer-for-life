@@ -12,6 +12,7 @@ import type {
     ConnectLink,
     JobApplicationDraft,
     ReminderNote,
+    SavedMemory,
     ScheduleProposal,
     ScheduledRunNote,
 } from "@/lib/api/types";
@@ -32,6 +33,13 @@ export interface ChatAttachment {
   mediaType: string;
   /** Unknown for an optimistic bubble whose file was read on the device. */
   sizeBytes?: number;
+  /**
+   * Base64 of a file sent from this device in this session, so it can still be saved to
+   * My files. Never stored: after a reload only the name is known.
+   */
+  data?: string;
+  /** Saved to My files from this bubble (transient UI state). */
+  savedToFiles?: boolean;
 }
 
 /**
@@ -59,6 +67,8 @@ export interface ChatMessage {
   brief?: BriefNote;
   /** Files sent with a user message */
   attachments?: ChatAttachment[];
+  /** On a user message: what was remembered from it, with Undo */
+  savedMemories?: SavedMemory[];
   /** Schedule proposal request in flight (transient UI state, never stored) */
   scheduleAction?: "confirming" | "dismissing";
   /** Last schedule proposal request failure (transient UI state, never stored) */
@@ -98,6 +108,7 @@ export function toUiMessage(message: ApiChatMessage): ChatMessage {
           sizeBytes: attachment.size_bytes,
         }))
       : undefined,
+    savedMemories: message.saved_memories?.length ? message.saved_memories : undefined,
   };
 }
 

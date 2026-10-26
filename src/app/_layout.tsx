@@ -4,7 +4,9 @@
  * App-wide navigation shell:
  * - ThemeProvider: light/dark system color scheme synchronization
  * - App state providers: toasts, the agent profile, and the open chat session
- * - Stack Navigator: headerless screen transitions
+ * - Gestures: the gesture-handler root every drag in the app needs (the chat list, sheets)
+ * - Stack Navigator: headerless screens pushed with the platform's own transition (on iOS
+ *   with the back swipe from anywhere on the screen); a cross-fade with Reduce Motion on
  * - Notifications: foreground banners, and tapping a result opens its chat
  * - StatusBar: dark icons on clean white surface
  * - Launch: the native splash stays up until the saved sign-in is restored, so the first
@@ -32,13 +34,12 @@ import {
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
-import {
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    useColorScheme,
-    View,
-} from "react-native";
+import { Platform, StyleSheet, useColorScheme, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { useReducedMotion } from "react-native-reanimated";
+import type { NativeStackNavigationOptions } from "expo-router/native-stack";
+import { AppText } from "@/components/ui/AppText";
+import { Button } from "@/components/ui/Button";
 
 configureForegroundNotifications();
 
@@ -56,26 +57,33 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   }, []);
   return (
     <View style={styles.errorScreen}>
-      <Text style={styles.errorTitle}>Something went wrong</Text>
-      <Text style={styles.errorText}>
+      <AppText variant="title2" align="center">
+        Something went wrong
+      </AppText>
+      <AppText variant="subheadline" color="secondary" align="center">
         {__DEV__
           ? error.message
           : "Zoop ran into a problem. Try again, and if it keeps happening, close and reopen the app."}
-      </Text>
-      <TouchableOpacity
-        style={styles.errorButton}
-        onPress={retry}
-        activeOpacity={0.8}
-        accessibilityRole="button"
-      >
-        <Text style={styles.errorButtonText}>Try again</Text>
-      </TouchableOpacity>
+      </AppText>
+      <Button title="Try again" onPress={retry} containerStyle={styles.errorButton} />
     </View>
   );
 }
 
+// Deeper into the app: the platform's push. Android's default is a fade, so it slides like iOS.
+const PUSH: NativeStackNavigationOptions = {
+  headerShown: false,
+  animation: Platform.OS === "android" ? "slide_from_right" : "default",
+  gestureEnabled: true,
+  fullScreenGestureEnabled: true,
+};
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const reducedMotion = useReducedMotion();
+  const push: NativeStackNavigationOptions = reducedMotion
+    ? { ...PUSH, animation: "fade" }
+    : PUSH;
   const [isReady, setIsReady] = useState(false);
 
   // Restoring the session reads local storage; once it is known, the first screen can
@@ -110,6 +118,7 @@ export default function RootLayout() {
   usePushRegistration();
 
   return (
+    <GestureHandlerRootView style={styles.root}>
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <ToastProvider>
         <AgentProfileProvider>
@@ -120,35 +129,43 @@ export default function RootLayout() {
               <Stack.Screen name="home" options={{ headerShown: false }} />
               <Stack.Screen
                 name="tools"
-                options={{ headerShown: false, animation: "slide_from_right" }}
+                options={push}
               />
               <Stack.Screen
                 name="notifications"
-                options={{ headerShown: false, animation: "slide_from_right" }}
+                options={push}
               />
               <Stack.Screen
                 name="help"
-                options={{ headerShown: false, animation: "slide_from_right" }}
+                options={push}
               />
               <Stack.Screen
                 name="memories/index"
-                options={{ headerShown: false, animation: "slide_from_right" }}
+                options={push}
               />
               <Stack.Screen
                 name="memories/[id]"
-                options={{ headerShown: false, animation: "slide_from_right" }}
+                options={push}
               />
               <Stack.Screen
                 name="people/[id]"
-                options={{ headerShown: false, animation: "slide_from_right" }}
+                options={push}
+              />
+              <Stack.Screen
+                name="files/index"
+                options={push}
+              />
+              <Stack.Screen
+                name="files/[id]"
+                options={push}
               />
               <Stack.Screen
                 name="import"
-                options={{ headerShown: false, animation: "slide_from_right" }}
+                options={push}
               />
               <Stack.Screen
                 name="schedules/[id]"
-                options={{ headerShown: false, animation: "slide_from_right" }}
+                options={push}
               />
               <Stack.Screen
                 name="auth/callback"
@@ -160,41 +177,23 @@ export default function RootLayout() {
         </AgentProfileProvider>
       </ToastProvider>
     </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   errorScreen: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
-    backgroundColor: Colors.white,
-    gap: 12,
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: Colors.iconDark,
-  },
-  errorText: {
-    fontSize: 14.5,
-    lineHeight: 21,
-    color: Colors.textSecondary,
-    textAlign: "center",
+    backgroundColor: Colors.systemBackground,
+    gap: 10,
   },
   errorButton: {
-    marginTop: 8,
-    paddingHorizontal: 22,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  errorButtonText: {
-    fontSize: 14.5,
-    fontWeight: "700",
-    color: Colors.white,
+    marginTop: 10,
   },
 });

@@ -30,6 +30,8 @@ from app.domain.enums import (
 from app.domain.errors import InvalidMemoryChangeError, RecordNotFoundError
 from app.domain.life_state import (
     LONG_TERM_TYPES,
+    QUESTION_TYPES,
+    REVIEW_NEWS_WINDOW,
     Brief,
     BriefInputs,
     BriefItem,
@@ -38,6 +40,7 @@ from app.domain.life_state import (
     compose_brief,
     is_stale,
 )
+from app.domain.memory_policy import display_title
 from app.domain.memory_review import ensure_live
 from app.domain.principal import Principal
 from app.models.app_user import AppUser
@@ -55,12 +58,17 @@ RECENTLY_DONE: Final = timedelta(days=7)
 class LifeOverview:
     today: date
     timezone: str
-    # Tasks, plans, commitments, open loops, and intentions, by when they are due.
+    # Tasks, plans, commitments, and intentions, by when they are due.
     buckets: Mapping[LifeBucket, tuple[MemoryView, ...]]
     goals: tuple[MemoryView, ...]
     stale_ids: frozenset[uuid.UUID]
     reminders: tuple[MemoryView, ...]
     recently_done: tuple[MemoryView, ...]
+    # Open questions and unresolved problems: nothing to tick off.
+    questions: tuple[MemoryView, ...] = ()
+    # Open items from an imported chat that nobody has looked at: still relevant? They
+    # stay out of the to-dos (an old export's tasks are rarely still open) until kept.
+    triage: tuple[MemoryView, ...] = ()
 
 
 def user_timezone(user: AppUser | None, default_timezone: str) -> ZoneInfo:
@@ -95,18 +103,27 @@ class LifeStateService:
             items = await life.open_items(principal.id, include_sensitive=include_sensitive)
             reminders = await life.reminders(principal.id, include_sensitive=include_sensitive)
             done = await life.recently_closed(principal.id, since=now - RECENTLY_DONE)
+            imported = await life.imported([memory.id for memory in items])
 
         buckets: dict[LifeBucket, list[MemoryView]] = defaultdict(list)
         goals: list[MemoryView] = []
+        questions: list[MemoryView] = []
+        triage: list[MemoryView] = []
         stale: set[uuid.UUID] = set()
         for memory in items:
             view = MemoryView.of(memory)
+            kind = MemoryType(memory.memory_type)
+            if memory.id in imported and memory.status == MemoryStatus.PROPOSED.value:
+                triage.append(view)
+                continue
             if is_stale(
                 due_on=memory.due_on, last_activity=memory.updated_at, now=now, today=today
             ):
                 stale.add(memory.id)
-            if MemoryType(memory.memory_type) in LONG_TERM_TYPES:
+            if kind in LONG_TERM_TYPES:
                 goals.append(view)
+            elif kind in QUESTION_TYPES:
+                questions.append(view)
             else:
                 buckets[bucket_for(memory.due_on, today)].append(view)
         return LifeOverview(
@@ -121,6 +138,8 @@ class LifeStateService:
                 for memory in done
                 if memory.close_reason == CloseReason.DONE.value
             ),
+            questions=tuple(questions),
+            triage=tuple(triage),
         )
 
     async def complete(self, principal: Principal, memory_id: uuid.UUID) -> MemoryView:
@@ -262,10 +281,18 @@ async def compose_user_brief(
     local_now = now.astimezone(zone)
     today = local_now.date()
     life = LifeRepository(session)
-    items = await life.open_items(user.id, include_sensitive=False)
+    open_items = await life.open_items(user.id, include_sensitive=False)
+    imported = await life.imported([memory.id for memory in open_items])
+    # Questions and imported items nobody has looked at are not the day's to-dos.
+    items = [
+        memory
+        for memory in open_items
+        if MemoryType(memory.memory_type) not in QUESTION_TYPES
+        and not (memory.id in imported and memory.status == MemoryStatus.PROPOSED.value)
+    ]
     end_of_day = datetime.combine(today + timedelta(days=1), datetime.min.time(), tzinfo=zone)
     reminders = await life.reminders(user.id, include_sensitive=False, before=end_of_day)
-    review = await MemoryRepository(session).count(user.id, MemoryStatus.PROPOSED)
+    review = await life.count_proposed_since(user.id, now - REVIEW_NEWS_WINDOW)
     last_week_done = 0
     if today.weekday() == 0:
         midnight = datetime.combine(today, datetime.min.time(), tzinfo=zone)
@@ -278,7 +305,11 @@ async def compose_user_brief(
         )
 
     def item(memory: Memory) -> BriefItem:
-        return BriefItem(memory_id=memory.id, content=memory.content, due_on=memory.due_on)
+        return BriefItem(
+            memory_id=memory.id,
+            content=display_title(memory.content, memory.metadata_),
+            due_on=memory.due_on,
+        )
 
     actionable = [m for m in items if MemoryType(m.memory_type) not in LONG_TERM_TYPES]
     yesterday = today - timedelta(days=1)
@@ -302,7 +333,7 @@ async def compose_user_brief(
             reminders=[
                 BriefReminder(
                     memory_id=m.id,
-                    content=m.content,
+                    content=display_title(m.content, m.metadata_),
                     at=m.remind_at.astimezone(zone).time() if m.remind_at else local_now.time(),
                 )
                 for m in reminders

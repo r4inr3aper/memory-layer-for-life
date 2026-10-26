@@ -1,30 +1,21 @@
 /**
  * SettingsMenuModal Component
  *
- * Floating dropdown action sheet anchored to the top-right 3-dots header button.
- * Provides quick actions:
- * 1. Edit Mascot & Avatar
- * 2. Rename Agent
- * 3. Share Chat (transcript)
- * 4. Clear Messages
- * 5. Delete Chat (Destructive; side chats only, the main chat can only be cleared)
+ * An iOS pull-down menu anchored to the header's "…" button. It grows out of the button
+ * (scale from 95% at its top-right corner, with a fade) and lists, in groups:
+ * 1. Edit Mascot & Avatar, Rename Agent
+ * 2. Share Chat, Clear Messages
+ * 3. Delete Chat (destructive; side chats only, the main chat can only be cleared)
  *
- * The chat actions (3–5) appear only while a chat is open on screen: they act on that chat,
- * and the header is shared by every tab.
+ * The chat actions appear only while a chat is open on screen: they act on that chat, and
+ * the header is shared by every tab.
  */
 
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  Platform,
-} from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import Animated, { Keyframe } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { HugeiconsIcon } from '@hugeicons/react-native';
+import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react-native';
 import {
   Edit01Icon,
   Delete02Icon,
@@ -33,10 +24,18 @@ import {
   RefreshIcon,
 } from '@hugeicons/core-free-icons';
 import { Colors } from '@/constants/colors';
+import { Elevation, Hairline, Motion, Radius, continuous } from '@/constants/theme';
+import { AppText } from '@/components/ui/AppText';
 
 // iOS cannot present an alert, share sheet, or another modal while this one is still
 // fading out, so actions start once it has closed.
 const AFTER_CLOSE_DELAY_MS = Platform.OS === 'ios' ? 350 : 0;
+
+// Built once: the menu grows from its anchor, never from nothing.
+const MENU_ENTER = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.95 }] },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: Motion.easeOut },
+}).duration(200);
 
 export interface SettingsMenuModalProps {
   /** Visibility state of the dropdown overlay */
@@ -59,9 +58,6 @@ export interface SettingsMenuModalProps {
   onShareChat?: () => void;
 }
 
-/**
- * Top-Right 3-Dots Action Sheet Dropdown
- */
 export const SettingsMenuModal: React.FC<SettingsMenuModalProps> = ({
   visible,
   showChatActions = false,
@@ -83,159 +79,115 @@ export const SettingsMenuModal: React.FC<SettingsMenuModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View
-          style={[
-            styles.overlay,
-            { paddingTop: Math.max(insets.top, 12) + (Platform.OS === 'web' ? 54 : 50) },
-          ]}>
-          <TouchableWithoutFeedback>
-            <View style={styles.dropdownCard}>
-              {/* 1. Edit Mascot & Avatar */}
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={closeThen(onEditAvatar)}
-                activeOpacity={0.7}>
-                <HugeiconsIcon
-                  icon={SparklesIcon}
-                  size={18}
-                  color={Colors.iconDark}
-                  strokeWidth={1.8}
-                />
-                <Text style={styles.itemText}>Edit Mascot & Avatar</Text>
-              </TouchableOpacity>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}>
+      <Pressable
+        style={[styles.overlay, { paddingTop: Math.max(insets.top, 12) + 50 }]}
+        onPress={onClose}
+        accessibilityLabel="Close the menu">
+        <Animated.View entering={MENU_ENTER} style={[styles.menu, continuous]}>
+          <Pressable>
+            <MenuItem label="Edit Mascot & Avatar" icon={SparklesIcon} onPress={closeThen(onEditAvatar)} />
+            <MenuSeparator />
+            <MenuItem label="Rename Agent" icon={Edit01Icon} onPress={closeThen(onRename)} />
 
-              {/* 2. Rename Agent / Chat */}
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={closeThen(onRename)}
-                activeOpacity={0.7}>
-                <HugeiconsIcon
-                  icon={Edit01Icon}
-                  size={18}
-                  color={Colors.iconDark}
-                  strokeWidth={1.8}
-                />
-                <Text style={styles.itemText}>Rename Agent</Text>
-              </TouchableOpacity>
-
-              {showChatActions ? (
-                <>
-                  {/* 3. Share Conversation */}
-                  <TouchableOpacity
-                    style={styles.menuItem}
-                    onPress={closeThen(onShareChat)}
-                    activeOpacity={0.7}>
-                    <HugeiconsIcon
-                      icon={Share01Icon}
-                      size={18}
-                      color={Colors.iconDark}
-                      strokeWidth={1.8}
+            {showChatActions ? (
+              <>
+                <View style={styles.groupGap} />
+                <MenuItem label="Share Chat" icon={Share01Icon} onPress={closeThen(onShareChat)} />
+                <MenuSeparator />
+                <MenuItem label="Clear Messages" icon={RefreshIcon} onPress={closeThen(onClearChat)} />
+                {canDeleteChat ? (
+                  <>
+                    <View style={styles.groupGap} />
+                    <MenuItem
+                      label="Delete Chat"
+                      icon={Delete02Icon}
+                      destructive
+                      onPress={closeThen(onDeleteChat)}
                     />
-                    <Text style={styles.itemText}>Share Chat</Text>
-                  </TouchableOpacity>
-
-                  {/* 4. Clear Messages */}
-                  <TouchableOpacity
-                    style={styles.menuItem}
-                    onPress={closeThen(onClearChat)}
-                    activeOpacity={0.7}>
-                    <HugeiconsIcon
-                      icon={RefreshIcon}
-                      size={18}
-                      color={Colors.iconDark}
-                      strokeWidth={1.8}
-                    />
-                    <Text style={styles.itemText}>Clear Messages</Text>
-                  </TouchableOpacity>
-
-                  {/* 5. Delete Chat (Destructive) */}
-                  {canDeleteChat ? (
-                    <>
-                      <View style={styles.divider} />
-                      <TouchableOpacity
-                        style={[styles.menuItem, styles.dangerItem]}
-                        onPress={closeThen(onDeleteChat)}
-                        activeOpacity={0.7}>
-                        <HugeiconsIcon
-                          icon={Delete02Icon}
-                          size={18}
-                          color={Colors.error}
-                          strokeWidth={1.8}
-                        />
-                        <Text style={[styles.itemText, styles.dangerText]}>Delete Chat</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : null}
-                </>
-              ) : null}
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </Pressable>
+        </Animated.View>
+      </Pressable>
     </Modal>
   );
 };
 
+/** A menu item as iOS draws one: the label at the left, its glyph at the right. */
+function MenuItem({
+  label,
+  icon,
+  destructive = false,
+  onPress,
+}: {
+  label: string;
+  icon: IconSvgElement;
+  destructive?: boolean;
+  onPress: () => void;
+}) {
+  const color = destructive ? Colors.systemRed : Colors.label;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="menuitem"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}>
+      <AppText variant="body" style={{ color }} numberOfLines={1}>
+        {label}
+      </AppText>
+      <HugeiconsIcon icon={icon} size={19} color={color} strokeWidth={1.9} />
+    </Pressable>
+  );
+}
+
+function MenuSeparator() {
+  return <View style={styles.separator} />;
+}
+
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    justifyContent: 'flex-start',
+    backgroundColor: 'transparent',
     alignItems: 'flex-end',
-    paddingTop: Platform.OS === 'ios' ? 64 : 56,
-    paddingRight: 16,
+    paddingRight: 12,
   },
-  dropdownCard: {
-    width: 200,
+  menu: {
+    width: 250,
+    borderRadius: Radius.md + 2,
     backgroundColor: Colors.white,
-    borderRadius: 14,
-    paddingVertical: 6,
-    paddingHorizontal: 5,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    ...Platform.select({
-      ios: {
-        shadowColor: Colors.black,
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.12,
-        shadowRadius: 16,
-      },
-      android: {
-        elevation: 8,
-      },
-      web: {
-        boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04)',
-      },
-    }),
+    overflow: 'hidden',
+    transformOrigin: 'top right',
+    ...Elevation.floating,
   },
-  menuItem: {
+  item: {
+    minHeight: 46,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-    borderRadius: 9,
-    gap: 10,
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    backgroundColor: Colors.white,
   },
-  dangerItem: {
-    marginTop: 1,
+  itemPressed: {
+    backgroundColor: Colors.cellPressed,
   },
-  itemText: {
-    fontSize: 13.5,
-    fontWeight: '500',
-    color: Colors.textPrimary,
-    letterSpacing: -0.2,
+  separator: {
+    height: Hairline,
+    backgroundColor: Colors.separator,
   },
-  dangerText: {
-    color: Colors.error,
-    fontWeight: '500',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.borderLight,
-    marginVertical: 4,
-    marginHorizontal: 6,
+  // iOS separates groups of a menu with a thick gray band.
+  groupGap: {
+    height: 8,
+    backgroundColor: Colors.systemGray6,
   },
 });
 

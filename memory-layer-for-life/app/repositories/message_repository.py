@@ -97,3 +97,19 @@ class MessageRepository(BaseRepository):
         if existing is None:  # pragma: no cover - guarded by the unique constraint
             raise RuntimeError("Raw message conflict reported, but no stored row was found.")
         return existing, False
+
+    async def recent_contents(
+        self, owner_id: uuid.UUID, *, source: str, since: datetime, limit: int = 500
+    ) -> list[str]:
+        """The texts of the owner's messages from one source stored since ``since``."""
+        rows = await self._session.scalars(
+            select(RawMessage.content)
+            .where(
+                RawMessage.owner_id == owner_id,
+                RawMessage.source == source,
+                RawMessage.ingested_at >= since,
+            )
+            .order_by(RawMessage.ingested_at.desc())
+            .limit(limit)
+        )
+        return list(rows)

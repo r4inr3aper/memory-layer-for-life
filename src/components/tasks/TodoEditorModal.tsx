@@ -7,28 +7,18 @@
  */
 
 import React, { useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Colors } from '@/constants/colors';
+import { Platform, StyleSheet, View } from 'react-native';
+import { AppSwitch } from '@/components/ui/AppSwitch';
+import { AppText } from '@/components/ui/AppText';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { ListRow, ListSection } from '@/components/ui/List';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { getErrorMessage } from '@/lib/api/client';
 import { createMemory } from '@/lib/api/memories';
 import type { MemoryItem } from '@/lib/api/types';
 import { dueChoices, isoDate, localIsoTime } from '@/lib/life';
 import { MEMORY_CONTENT_MAX_LENGTH, validateMemoryContent } from '@/lib/memories';
-import { DateField, TimeField } from './DateTimeFields';
+import { ChoiceChip, DateField, FieldTextInput, TimeField } from './DateTimeFields';
 
 const KINDS = [
   { value: 'task', label: 'To-do' },
@@ -43,7 +33,6 @@ export interface TodoEditorModalProps {
 }
 
 export const TodoEditorModal: React.FC<TodoEditorModalProps> = ({ visible, onClose, onSaved }) => {
-  const insets = useSafeAreaInsets();
   const today = isoDate(new Date());
   const [content, setContent] = useState('');
   const [kind, setKind] = useState<string>('task');
@@ -102,293 +91,126 @@ export const TodoEditorModal: React.FC<TodoEditorModalProps> = ({ visible, onClo
   const choices = dueChoices(today);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.overlay}>
-          <TouchableWithoutFeedback onPress={isSaving ? undefined : onClose}>
-            <View style={styles.backdrop} />
-          </TouchableWithoutFeedback>
-          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-            <Text style={styles.title}>New to-do</Text>
-            <ScrollView
-              style={styles.form}
-              contentContainerStyle={styles.formContent}
-              keyboardShouldPersistTaps="handled">
-              <TextInput
-                style={[styles.input, error && styles.inputError]}
-                value={content}
-                onChangeText={(text) => {
-                  setContent(text);
-                  setError(null);
-                }}
-                placeholder="Renew the passport"
-                placeholderTextColor={Colors.iconMuted}
-                maxLength={MEMORY_CONTENT_MAX_LENGTH}
-                autoFocus={Platform.OS !== 'web'}
-                accessibilityLabel="What to do"
-              />
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      dismissible={!isSaving}
+      title="New to-do"
+      leftAction={{ label: 'Cancel', onPress: onClose, disabled: isSaving }}
+      rightAction={{ label: 'Add', onPress: handleSave, loading: isSaving }}
+      scrollable>
+      <ListSection
+        footer={
+          error ? (
+            <AppText variant="footnote" color="destructive">
+              {error}
+            </AppText>
+          ) : undefined
+        }>
+        <FieldTextInput
+          value={content}
+          onChangeText={(text) => {
+            setContent(text);
+            setError(null);
+          }}
+          placeholder="Renew the passport"
+          maxLength={MEMORY_CONTENT_MAX_LENGTH}
+          autoFocus={Platform.OS !== 'web'}
+          returnKeyType="done"
+          accessibilityLabel="What to do"
+        />
+      </ListSection>
 
-              <Text style={styles.label}>Kind</Text>
-              <View style={styles.chipRow}>
-                {KINDS.map((option) => (
-                  <Chip
-                    key={option.value}
-                    label={option.label}
-                    selected={kind === option.value}
-                    onPress={() => setKind(option.value)}
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.label}>Due</Text>
-              <View style={styles.chipRow}>
-                <Chip
-                  label="No date"
-                  selected={dueOn === null && !isPickingDate}
-                  onPress={() => {
-                    setDueOn(null);
-                    setIsPickingDate(false);
-                  }}
-                />
-                {choices.map((choice) => (
-                  <Chip
-                    key={choice.label}
-                    label={choice.label}
-                    selected={dueOn === choice.value && !isPickingDate}
-                    onPress={() => {
-                      setDueOn(choice.value);
-                      setIsPickingDate(false);
-                    }}
-                  />
-                ))}
-                <Chip
-                  label="Pick a date"
-                  selected={isPickingDate}
-                  onPress={() => {
-                    setIsPickingDate(true);
-                    setDueOn(dueOn ?? today);
-                  }}
-                />
-              </View>
-              {isPickingDate ? (
-                <View style={styles.fieldSpacing}>
-                  <DateField
-                    value={dueOn ?? today}
-                    onChange={setDueOn}
-                    accessibilityLabel="Due date"
-                  />
-                </View>
-              ) : null}
-
-              <View style={styles.switchRow}>
-                <Text style={styles.switchTitle}>Remind me</Text>
-                <Switch
-                  value={remind}
-                  onValueChange={(value) => {
-                    setRemind(value);
-                    if (value && dueOn) setRemindDate(dueOn);
-                  }}
-                  trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                  thumbColor={remind ? Colors.primary : Colors.surfaceMuted}
-                  accessibilityLabel="Remind me"
-                />
-              </View>
-              {remind ? (
-                <View style={[styles.chipRow, styles.fieldSpacing]}>
-                  <DateField
-                    value={remindDate}
-                    onChange={setRemindDate}
-                    accessibilityLabel="Reminder date"
-                  />
-                  <TimeField
-                    value={remindTime}
-                    onChange={setRemindTime}
-                    accessibilityLabel="Reminder time"
-                  />
-                </View>
-              ) : null}
-
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
-            </ScrollView>
-
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={onClose} disabled={isSaving}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveBtn}
-                onPress={handleSave}
-                disabled={isSaving}
-                accessibilityRole="button">
-                {isSaving ? (
-                  <ActivityIndicator size="small" color={Colors.white} />
-                ) : (
-                  <Text style={styles.saveText}>Add</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
+      <ListSection header="Kind">
+        <View style={styles.cell}>
+          <SegmentedControl segments={KINDS} value={kind} onChange={setKind} />
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+      </ListSection>
+
+      <ListSection header="Due">
+        <View style={[styles.cell, styles.chips]}>
+          <ChoiceChip
+            label="No date"
+            selected={dueOn === null && !isPickingDate}
+            onPress={() => {
+              setDueOn(null);
+              setIsPickingDate(false);
+            }}
+          />
+          {choices.map((choice) => (
+            <ChoiceChip
+              key={choice.label}
+              label={choice.label}
+              selected={dueOn === choice.value && !isPickingDate}
+              onPress={() => {
+                setDueOn(choice.value);
+                setIsPickingDate(false);
+              }}
+            />
+          ))}
+          <ChoiceChip
+            label="Pick a date"
+            selected={isPickingDate}
+            onPress={() => {
+              setIsPickingDate(true);
+              setDueOn(dueOn ?? today);
+            }}
+          />
+        </View>
+        {isPickingDate ? (
+          <DateField
+            label="Date"
+            value={dueOn ?? today}
+            onChange={setDueOn}
+            accessibilityLabel="Due date"
+          />
+        ) : null}
+      </ListSection>
+
+      <ListSection>
+        <ListRow
+          title="Remind me"
+          accessory={
+            <AppSwitch
+              value={remind}
+              onValueChange={(value) => {
+                setRemind(value);
+                if (value && dueOn) setRemindDate(dueOn);
+              }}
+              accessibilityLabel="Remind me"
+            />
+          }
+        />
+        {remind ? (
+          <DateField
+            label="Date"
+            value={remindDate}
+            onChange={setRemindDate}
+            accessibilityLabel="Reminder date"
+          />
+        ) : null}
+        {remind ? (
+          <TimeField
+            label="Time"
+            value={remindTime}
+            onChange={setRemindTime}
+            accessibilityLabel="Reminder time"
+          />
+        ) : null}
+      </ListSection>
+    </BottomSheet>
   );
 };
 
-function Chip({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.chip, selected && styles.chipSelected]}
-      onPress={onPress}
-      activeOpacity={0.75}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}>
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
+  cell: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: Colors.overlay,
-  },
-  sheet: {
-    maxHeight: '90%',
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 18,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    paddingHorizontal: 20,
-    marginBottom: 10,
-  },
-  form: {
-    flexGrow: 0,
-  },
-  formContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Colors.iconMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 16,
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: Colors.surfaceInput,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    fontWeight: '500',
-    color: Colors.iconDark,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
-  },
-  inputError: {
-    borderColor: Colors.error,
-  },
-  errorText: {
-    marginTop: 10,
-    fontSize: 12.5,
-    color: Colors.error,
-  },
-  chipRow: {
+  chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'center',
     gap: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.white,
-  },
-  chipSelected: {
-    borderColor: Colors.primaryBorder,
-    backgroundColor: Colors.primarySubtle,
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  chipTextSelected: {
-    color: Colors.primary,
-  },
-  fieldSpacing: {
-    marginTop: 10,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 18,
-  },
-  switchTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  cancelBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  saveBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.white,
   },
 });
 

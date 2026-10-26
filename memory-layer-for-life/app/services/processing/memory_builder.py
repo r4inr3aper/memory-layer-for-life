@@ -5,8 +5,9 @@ resolution results, and returns drafts. Persisting them is the runner's job.
 
 Rules that hold for every draft:
 
-* Status is always ``proposed``. The pipeline never activates a memory and never
-  supersedes one: reconciliation with existing memories is an explicit later step.
+* Status is always ``proposed``. Whether a draft is accepted on its own, or is a memory
+  the user already has, is decided when it is persisted (``app.domain.memory_policy``,
+  ADR-048), with the user's existing memories in view.
 * Every draft has at least one supporting source. The other messages of the unit are
   linked as contextual sources, because they were read together with the evidence.
 * A quote is stored as evidence only when it really occurs in the cited message. A quote
@@ -22,6 +23,7 @@ from typing import Any
 
 from app.domain.enums import MemoryStatus, MemoryType, SourceRole
 from app.domain.life_state import LIFE_TYPES
+from app.domain.memory_policy import clean_title
 from app.domain.normalization import contains_quote, normalize_for_matching
 from app.models.raw_message import RawMessage
 from app.schemas.extraction import ExtractedMemory, ExtractionOutput
@@ -120,6 +122,7 @@ class MemoryBuilder:
             ambiguity=memory.ambiguity,
             temporal=memory.temporal,
             financial=memory.financial,
+            title=(clean_title(memory.title) or None) if memory.title else None,
         )
 
         entity_ids: list[uuid.UUID] = []

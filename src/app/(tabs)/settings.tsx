@@ -1,14 +1,20 @@
 /**
  * Settings Tab Screen ('/(tabs)/settings')
  *
- * Clean settings & account management:
- * - Today's usage meter (prompts used against the daily limit) and cost history
- * - Settings items (Tools & Connections, Memories, Notifications, Help & Feedback)
- * - Account: Export my data, Sign Out, and Delete account
+ * Laid out as iOS Settings: a large title, then inset-grouped sections of rows on the
+ * grouped background, each row marked by a colored glyph tile.
+ * - Today: the usage meter (prompts used against the daily limit) and cost history
+ * - Tools & Connections, Notifications
+ * - Memories, Files & links, Import a WhatsApp chat
+ * - Help & Feedback, Export my data
+ * - Sign Out and Delete account, in their own section at the bottom
  */
 
 import { CostHistory } from "@/components/settings/CostHistory";
+import { AppText, Button, LargeTitle, ListRow, ListSection } from "@/components/ui";
 import { Colors } from "@/constants/colors";
+import { Radius } from "@/constants/theme";
+import { useAgentProfile } from "@/context/AgentProfileContext";
 import { showToast } from "@/context/ToastContext";
 import { getErrorMessage, isAbortError } from "@/lib/api/client";
 import { deleteAccount, getUsage } from "@/lib/api/me";
@@ -19,30 +25,21 @@ import { formatResetTime } from "@/lib/formatTime";
 import { signOut, signOutDeletedAccount } from "@/lib/session";
 import { formatCost } from "@/lib/usageChart";
 import {
-    ArrowRight01Icon,
-    Brain01Icon,
-    Download01Icon,
-    Grid02Icon,
-    HelpCircleIcon,
-    Logout01Icon,
-    Notification01Icon,
-    Upload01Icon,
-    UserRemove01Icon,
+  Brain01Icon,
+  Download01Icon,
+  Folder01Icon,
+  Grid02Icon,
+  HelpCircleIcon,
+  Notification01Icon,
+  WhatsappIcon,
 } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import {
-    ActivityIndicator,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { profile } = useAgentProfile();
   const [usage, setUsage] = useState<Usage | null>(null);
   const [usageError, setUsageError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -164,6 +161,11 @@ export default function SettingsScreen() {
         ? Math.min(100, Math.round((usage.prompts_used / promptLimit) * 100))
         : 100
       : null;
+  const isFull = percentUsed !== null && percentUsed >= 100;
+
+  const busy = (
+    <ActivityIndicator size="small" color={Colors.secondaryLabel} />
+  );
 
   return (
     <View style={styles.container}>
@@ -172,282 +174,141 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Title */}
-        <View style={styles.headerRow}>
-          <Text style={styles.pageTitle}>Settings</Text>
-        </View>
+        <LargeTitle title="Settings" />
 
-        {/* 1. Usage Card */}
-        <View style={styles.planCard}>
-          <View style={styles.planHeaderRow}>
-            <Text style={styles.planTitle}>Today</Text>
-            {percentUsed !== null ? (
-              <Text style={styles.planUsageText}>{percentUsed}% used</Text>
-            ) : null}
-          </View>
-
-          {usage ? (
-            <>
-              <Text style={styles.planResetText}>
-                {promptLimit !== null
-                  ? `${usage.prompts_used.toLocaleString()} of ${promptLimit.toLocaleString()} prompts used`
-                  : `${usage.prompts_used.toLocaleString()} ${usage.prompts_used === 1 ? "prompt" : "prompts"} used`}
-                {` · ${formatCost(usage.estimated_cost, usage.currency)} spent`}
-              </Text>
-              {percentUsed !== null ? (
-                <View style={styles.progressBarTrack}>
-                  <View
-                    style={[
-                      styles.progressBarFill,
-                      { width: `${percentUsed}%` },
-                      percentUsed >= 100 && styles.progressBarFull,
-                    ]}
-                  />
+        {/* Today's usage: the meter, then cost history as a disclosure row. */}
+        <ListSection header="Today">
+          <View style={styles.meter}>
+            {usage ? (
+              <>
+                <View style={styles.meterHeader}>
+                  <AppText variant="headline" style={styles.meterTitle}>
+                    {promptLimit !== null
+                      ? `${usage.prompts_used.toLocaleString()} of ${promptLimit.toLocaleString()} prompts used`
+                      : `${usage.prompts_used.toLocaleString()} ${usage.prompts_used === 1 ? "prompt" : "prompts"} used`}
+                  </AppText>
+                  {percentUsed !== null ? (
+                    <AppText
+                      variant="subheadline"
+                      color={isFull ? "destructive" : "secondary"}
+                    >
+                      {percentUsed}%
+                    </AppText>
+                  ) : null}
                 </View>
-              ) : null}
-              <Text style={[styles.planResetText, styles.usageLastLine]}>
-                Resets {formatResetTime(usage.resets_at)}
-              </Text>
-              <CostHistory />
-            </>
-          ) : usageError ? (
-            <TouchableOpacity
-              onPress={() => {
-                setUsageError(null);
-                loadUsage();
-              }}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-            >
-              <Text style={styles.usageErrorText}>{usageError}</Text>
-              <Text style={styles.retryText}>Try again</Text>
-            </TouchableOpacity>
-          ) : (
-            <ActivityIndicator
-              style={styles.usageSpinner}
-              color={Colors.primary}
-            />
-          )}
-        </View>
+                {percentUsed !== null ? (
+                  <View style={styles.track}>
+                    <View
+                      style={[
+                        styles.fill,
+                        { width: `${percentUsed}%` },
+                        isFull && styles.fillFull,
+                      ]}
+                    />
+                  </View>
+                ) : null}
+                <AppText variant="footnote" color="secondary">
+                  {formatCost(usage.estimated_cost, usage.currency)} spent · Resets{" "}
+                  {formatResetTime(usage.resets_at)}
+                </AppText>
+              </>
+            ) : usageError ? (
+              <View style={styles.usageError}>
+                <AppText variant="subheadline" color="destructive">
+                  {usageError}
+                </AppText>
+                <Button
+                  title="Try again"
+                  variant="plain"
+                  size="small"
+                  onPress={() => {
+                    setUsageError(null);
+                    loadUsage();
+                  }}
+                  containerStyle={styles.retry}
+                />
+              </View>
+            ) : (
+              <ActivityIndicator
+                style={styles.usageSpinner}
+                color={Colors.secondaryLabel}
+              />
+            )}
+          </View>
+          {usage ? <CostHistory /> : null}
+        </ListSection>
 
-        {/* 2. Primary Group: Tools & Connections */}
-        <View style={styles.groupCard}>
-          <TouchableOpacity
-            style={styles.listItem}
+        <ListSection>
+          <ListRow
+            icon={Grid02Icon}
+            iconColor={Colors.systemBlue}
+            title="Tools & Connections"
             onPress={() => router.push("/tools")}
-            activeOpacity={0.65}
-          >
-            <View style={styles.listIconCol}>
-              <HugeiconsIcon
-                icon={Grid02Icon}
-                size={22}
-                color={Colors.iconDark}
-                strokeWidth={2}
-              />
-            </View>
-            <Text style={styles.listLabel}>Tools & Connections</Text>
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              size={20}
-              color={Colors.iconMuted}
-              strokeWidth={1.8}
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* 3. Secondary Group: Preferences & Support */}
-        <View style={styles.groupCard}>
-          <TouchableOpacity
-            style={styles.listItem}
-            onPress={() => router.push("/memories")}
-            activeOpacity={0.65}
-          >
-            <View style={styles.listIconCol}>
-              <HugeiconsIcon
-                icon={Brain01Icon}
-                size={22}
-                color={Colors.iconDark}
-                strokeWidth={2}
-              />
-            </View>
-            <Text style={styles.listLabel}>Memories</Text>
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              size={20}
-              color={Colors.iconMuted}
-              strokeWidth={1.8}
-            />
-          </TouchableOpacity>
-
-          <View style={styles.rowDivider} />
-
-          <TouchableOpacity
-            style={styles.listItem}
-            onPress={() => router.push("/import")}
-            activeOpacity={0.65}
-          >
-            <View style={styles.listIconCol}>
-              <HugeiconsIcon
-                icon={Upload01Icon}
-                size={22}
-                color={Colors.iconDark}
-                strokeWidth={2}
-              />
-            </View>
-            <Text style={styles.listLabel}>Import a WhatsApp chat</Text>
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              size={20}
-              color={Colors.iconMuted}
-              strokeWidth={1.8}
-            />
-          </TouchableOpacity>
-
-          <View style={styles.rowDivider} />
-
-          <TouchableOpacity
-            style={styles.listItem}
+          />
+          <ListRow
+            icon={Notification01Icon}
+            iconColor={Colors.systemRed}
+            title="Notifications"
             onPress={() => router.push("/notifications")}
-            activeOpacity={0.65}
-          >
-            <View style={styles.listIconCol}>
-              <HugeiconsIcon
-                icon={Notification01Icon}
-                size={22}
-                color={Colors.iconDark}
-                strokeWidth={2}
-              />
-            </View>
-            <Text style={styles.listLabel}>Notifications</Text>
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              size={20}
-              color={Colors.iconMuted}
-              strokeWidth={1.8}
-            />
-          </TouchableOpacity>
+          />
+        </ListSection>
 
-          <View style={styles.rowDivider} />
+        <ListSection>
+          <ListRow
+            icon={Brain01Icon}
+            iconColor={Colors.systemPurple}
+            title="Memories"
+            onPress={() => router.push("/memories")}
+          />
+          <ListRow
+            icon={Folder01Icon}
+            iconColor={Colors.systemIndigo}
+            title="Files & links"
+            subtitle={`Resume, documents, and links ${profile.name} can send`}
+            onPress={() => router.push("/files")}
+          />
+          <ListRow
+            icon={WhatsappIcon}
+            iconColor={Colors.systemGreen}
+            title="Import a WhatsApp chat"
+            onPress={() => router.push("/import")}
+          />
+        </ListSection>
 
-          <TouchableOpacity
-            style={styles.listItem}
+        <ListSection>
+          <ListRow
+            icon={HelpCircleIcon}
+            iconColor={Colors.systemOrange}
+            title="Help & Feedback"
             onPress={() => router.push("/help")}
-            activeOpacity={0.65}
-          >
-            <View style={styles.listIconCol}>
-              <HugeiconsIcon
-                icon={HelpCircleIcon}
-                size={22}
-                color={Colors.iconDark}
-                strokeWidth={2}
-              />
-            </View>
-            <Text style={styles.listLabel}>Help & Feedback</Text>
-            <HugeiconsIcon
-              icon={ArrowRight01Icon}
-              size={20}
-              color={Colors.iconMuted}
-              strokeWidth={1.8}
-            />
-          </TouchableOpacity>
-        </View>
+          />
+          <ListRow
+            icon={Download01Icon}
+            iconColor={Colors.systemGray}
+            title={isExporting ? "Preparing your data..." : "Export my data"}
+            subtitle="Saves everything Zoop holds for you as one file"
+            onPress={isExporting ? undefined : handleExport}
+            accessory={isExporting ? busy : "none"}
+          />
+        </ListSection>
 
-        {/* 4. Account Group: Export, Sign Out & Delete account */}
-        <View style={styles.groupCard}>
-          <TouchableOpacity
-            style={styles.listItem}
-            onPress={handleExport}
-            disabled={isExporting}
-            activeOpacity={0.65}
-            accessibilityHint="Saves everything Zoop holds for you as one file"
-          >
-            <View style={styles.listIconCol}>
-              <HugeiconsIcon
-                icon={Download01Icon}
-                size={22}
-                color={Colors.iconDark}
-                strokeWidth={2}
-              />
-            </View>
-            <Text style={styles.listLabel}>
-              {isExporting ? "Preparing your data..." : "Export my data"}
-            </Text>
-            {isExporting ? (
-              <ActivityIndicator size="small" color={Colors.primary} />
-            ) : (
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                size={20}
-                color={Colors.iconMuted}
-                strokeWidth={1.8}
-              />
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.rowDivider} />
-
-          <TouchableOpacity
-            style={styles.listItem}
-            onPress={handleSignOut}
-            disabled={isSigningOut}
-            activeOpacity={0.65}
-          >
-            <View style={styles.listIconCol}>
-              <HugeiconsIcon
-                icon={Logout01Icon}
-                size={22}
-                color={Colors.error}
-                strokeWidth={2}
-              />
-            </View>
-            <Text style={[styles.listLabel, { color: Colors.error }]}>
-              {isSigningOut ? "Signing out..." : "Sign Out"}
-            </Text>
-            {isSigningOut ? (
-              <ActivityIndicator size="small" color={Colors.error} />
-            ) : (
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                size={20}
-                color={Colors.iconMuted}
-                strokeWidth={1.8}
-              />
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.rowDivider} />
-
-          <TouchableOpacity
-            style={styles.listItem}
-            onPress={handleDeleteAccount}
-            disabled={isDeleting}
-            activeOpacity={0.65}
-          >
-            <View style={styles.listIconCol}>
-              <HugeiconsIcon
-                icon={UserRemove01Icon}
-                size={22}
-                color={Colors.error}
-                strokeWidth={2}
-              />
-            </View>
-            <Text style={[styles.listLabel, { color: Colors.error }]}>
-              {isDeleting ? "Deleting account..." : "Delete account"}
-            </Text>
-            {isDeleting ? (
-              <ActivityIndicator size="small" color={Colors.error} />
-            ) : (
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                size={20}
-                color={Colors.iconMuted}
-                strokeWidth={1.8}
-              />
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={{ height: 40 }} />
+        {/* Account actions that end the session, apart from everything else. */}
+        <ListSection>
+          <ListRow
+            title={isSigningOut ? "Signing out..." : "Sign Out"}
+            action
+            destructive
+            onPress={isSigningOut ? undefined : handleSignOut}
+            accessory={isSigningOut ? busy : undefined}
+          />
+          <ListRow
+            title={isDeleting ? "Deleting account..." : "Delete account"}
+            action
+            destructive
+            onPress={isDeleting ? undefined : handleDeleteAccount}
+            accessory={isDeleting ? busy : undefined}
+          />
+        </ListSection>
       </ScrollView>
     </View>
   );
@@ -456,118 +317,52 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.groupedBackground,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
+    paddingTop: 8,
     paddingBottom: 24,
   },
-  headerRow: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
+  meter: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 10,
   },
-  pageTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: Colors.iconDark,
-    letterSpacing: -0.5,
-  },
-  planCard: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    backgroundColor: "#FAFAFB",
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: "#ECEEF0",
-  },
-  planHeaderRow: {
+  meterHeader: {
     flexDirection: "row",
+    alignItems: "baseline",
     justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
+    gap: 12,
   },
-  planTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
+  meterTitle: {
+    flexShrink: 1,
   },
-  planUsageText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#0066FF",
-  },
-  planResetText: {
-    fontSize: 12.5,
-    color: "#707070",
-    marginBottom: 12,
-  },
-  progressBarTrack: {
+  track: {
     height: 6,
-    backgroundColor: "#E6E8EA",
-    borderRadius: 3,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.tertiaryFill,
     overflow: "hidden",
-    marginBottom: 14,
   },
-  progressBarFill: {
+  fill: {
     height: "100%",
-    backgroundColor: "#0066FF",
-    borderRadius: 3,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.tint,
   },
-  progressBarFull: {
-    backgroundColor: Colors.error,
+  fillFull: {
+    backgroundColor: Colors.systemRed,
   },
-  usageLastLine: {
-    marginBottom: 0,
+  usageError: {
+    alignItems: "flex-start",
+    gap: 4,
   },
-  usageErrorText: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.error,
-  },
-  retryText: {
-    marginTop: 6,
-    fontSize: 13.5,
-    fontWeight: "700",
-    color: Colors.primary,
+  retry: {
+    marginLeft: -4,
   },
   usageSpinner: {
     alignSelf: "flex-start",
     marginVertical: 6,
-  },
-  groupCard: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    backgroundColor: "#FAFAFB",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#ECEEF0",
-    overflow: "hidden",
-  },
-  listItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-  },
-  listIconCol: {
-    width: 32,
-    alignItems: "flex-start",
-  },
-  listLabel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
-  },
-  rowDivider: {
-    height: 1,
-    backgroundColor: "#F0F0F2",
-    marginLeft: 48,
   },
 });

@@ -1,5 +1,6 @@
 """Turns service results of the assistant app into API responses."""
 
+from collections.abc import Sequence
 from zoneinfo import ZoneInfo
 
 from app.domain.enums import (
@@ -24,6 +25,7 @@ from app.schemas.app import (
     ErrorEvent,
     FinalEvent,
     MeResponse,
+    SavedMemoryResponse,
     ScheduleResponse,
     ScheduleRunResponse,
     TextDeltaEvent,
@@ -48,6 +50,7 @@ from app.services.assistant.context import (
     TurnFinished,
     TurnStarted,
 )
+from app.services.chat import SavedMemory
 from app.services.schedules import ActivityEntry
 from app.services.tool_connections import ToolView
 from app.services.usage import UsageHistory, UsageReport
@@ -137,7 +140,9 @@ def to_thread_response(thread: ChatThread) -> ThreadResponse:
     return ThreadResponse.model_validate(thread)
 
 
-def to_message_response(message: ChatMessage) -> ChatMessageResponse:
+def to_message_response(
+    message: ChatMessage, saved: Sequence[SavedMemory] = ()
+) -> ChatMessageResponse:
     return ChatMessageResponse(
         id=message.id,
         thread_id=message.thread_id,
@@ -146,6 +151,15 @@ def to_message_response(message: ChatMessage) -> ChatMessageResponse:
         metadata=MessageMetadata.from_json(message.metadata_),
         created_at=message.created_at,
         updated_at=message.updated_at,
+        saved_memories=[
+            SavedMemoryResponse(
+                memory_id=memory.memory_id,
+                title=memory.title,
+                memory_type=memory.memory_type,
+                status=memory.status,
+            )
+            for memory in saved
+        ],
     )
 
 

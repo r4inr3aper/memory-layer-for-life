@@ -3,24 +3,30 @@
  *
  * One schedule: when it runs (in its own timezone), where results go, the task it runs,
  * and every run, including slots that were skipped and why. From here the user runs it
- * now, pauses or resumes it, edits it, cancels it, or deletes it with its history.
+ * now, pauses or resumes it, edits it (Edit in the bar), cancels it, or deletes it with
+ * its history. The schedule's title is the large title; the run history is one inset group
+ * drawn by the list's rows, so it can page in as the user scrolls.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScreenHeader } from '@/components/common/ScreenHeader';
+import {
+  AppText,
+  Button,
+  EmptyState,
+  LargeTitle,
+  ListRow,
+  ListSection,
+  PressableScale,
+  ScreenHeader,
+  useScrollY,
+} from '@/components/ui';
 import { ScheduleFormModal } from '@/components/tasks/ScheduleFormModal';
 import { Colors } from '@/constants/colors';
+import { Hairline, Radius, ScreenMargin, continuous } from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { useRequireSession } from '@/hooks/useRequireSession';
 import { ApiError, getErrorMessage, isAbortError } from '@/lib/api/client';
@@ -52,16 +58,17 @@ const STATUS_LABEL: Record<ScheduleStatus, string> = {
 };
 
 const RUN_STATUS: Record<ScheduleRun['status'], { label: string; color: string }> = {
-  running: { label: 'Running', color: Colors.primary },
-  succeeded: { label: 'Done', color: Colors.success },
-  failed: { label: 'Failed', color: Colors.error },
-  skipped: { label: 'Skipped', color: Colors.warning },
+  running: { label: 'Running', color: Colors.tint },
+  succeeded: { label: 'Done', color: Colors.systemGreen },
+  failed: { label: 'Failed', color: Colors.systemRed },
+  skipped: { label: 'Skipped', color: Colors.systemOrange },
 };
 
 export default function ScheduleDetailScreen() {
   const hasSession = useRequireSession();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { scrollY, onScroll } = useScrollY();
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [runs, setRuns] = useState<ScheduleRun[]>([]);
   const [runsTotal, setRunsTotal] = useState(0);
@@ -226,13 +233,15 @@ export default function ScheduleDetailScreen() {
     return <View style={styles.safeArea} />;
   }
 
+  const isReady = status === 'ready' && schedule !== null;
+  const canEdit = isReady && schedule.status !== 'cancelled';
+
   const header = schedule ? (
     <ScheduleSummary
       schedule={schedule}
       busy={busy}
       onRunNow={handleRunNow}
       onTogglePause={handleTogglePause}
-      onEdit={() => setIsEditOpen(true)}
       onCancel={handleCancel}
       onDelete={handleDelete}
       onOpenSource={
@@ -244,48 +253,72 @@ export default function ScheduleDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <ScreenHeader title="Schedule" fallbackHref="/(tabs)/tasks" />
+      <ScreenHeader
+        title={isReady ? schedule.title : 'Schedule'}
+        fallbackHref="/(tabs)/tasks"
+        scrollY={isReady ? scrollY : undefined}
+        right={
+          canEdit ? (
+            <PressableScale
+              onPress={() => setIsEditOpen(true)}
+              disabled={busy !== null}
+              accessibilityRole="button"
+              style={styles.editButton}>
+              <AppText variant="body" color="tint">
+                Edit
+              </AppText>
+            </PressableScale>
+          ) : undefined
+        }
+      />
 
       {status === 'loading' ? (
-        <ActivityIndicator style={styles.spinner} color={Colors.primary} />
+        <ActivityIndicator style={styles.spinner} color={Colors.secondaryLabel} />
       ) : status === 'missing' ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>This schedule no longer exists</Text>
-          <Text style={styles.emptyText}>It may have been deleted.</Text>
-        </View>
+        <EmptyState
+          title="This schedule no longer exists"
+          message="It may have been deleted."
+          style={styles.centered}
+        />
       ) : status === 'error' ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>{errorMessage}</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={() => {
-              setStatus('loading');
-              void load();
-            }}
-            activeOpacity={0.75}>
-            <Text style={styles.retryText}>Try again</Text>
-          </TouchableOpacity>
-        </View>
+        <EmptyState
+          title={errorMessage}
+          actionTitle="Try again"
+          onAction={() => {
+            setStatus('loading');
+            void load();
+          }}
+          style={styles.centered}
+        />
       ) : (
-        <FlatList
+        <Animated.FlatList
           data={runs}
           keyExtractor={(run) => run.id}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           ListHeaderComponent={header ?? undefined}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <RunRow
               run={item}
+              isFirst={index === 0}
+              isLast={index === runs.length - 1}
               isExpanded={expandedRunId === item.id}
               onToggle={() => setExpandedRunId((current) => (current === item.id ? null : item.id))}
               onOpenInChat={item.chat_message_id ? openRunInChat : null}
             />
           )}
+          ItemSeparatorComponent={RunSeparator}
           ListEmptyComponent={
-            <Text style={styles.noRunsText}>No runs yet. Run it now to try it out.</Text>
+            <View style={[styles.runCell, styles.runFirst, styles.runLast, styles.noRuns]}>
+              <AppText variant="subheadline" color="secondary">
+                No runs yet. Run it now to try it out.
+              </AppText>
+            </View>
           }
           ListFooterComponent={
             isLoadingMore ? (
-              <ActivityIndicator style={styles.spinner} color={Colors.primary} />
+              <ActivityIndicator style={styles.spinner} color={Colors.secondaryLabel} />
             ) : undefined
           }
           onEndReached={handleLoadMore}
@@ -294,7 +327,8 @@ export default function ScheduleDetailScreen() {
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              tintColor={Colors.primary}
+              tintColor={Colors.secondaryLabel}
+              colors={[Colors.tint]}
             />
           }
         />
@@ -319,7 +353,6 @@ function ScheduleSummary({
   runsTotal,
   onRunNow,
   onTogglePause,
-  onEdit,
   onCancel,
   onDelete,
   onOpenSource,
@@ -329,7 +362,6 @@ function ScheduleSummary({
   runsTotal: number;
   onRunNow: () => void;
   onTogglePause: () => void;
-  onEdit: () => void;
   onCancel: () => void;
   onDelete: () => void;
   onOpenSource: (() => void) | null;
@@ -345,343 +377,231 @@ function ScheduleSummary({
       : schedule.status === 'cancelled'
         ? 'None: cancelled'
         : 'When resumed';
+  // Another action in flight blocks this one; its own row keeps a spinner instead.
+  const blocked = (action: Action) => busy !== null && busy !== action;
+  const spinner = (action: Action) =>
+    busy === action ? <ActivityIndicator size="small" color={Colors.secondaryLabel} /> : undefined;
 
   return (
     <View>
-      <View style={styles.card}>
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>{schedule.title}</Text>
-          <View style={[styles.statusPill, styles[`status_${schedule.status}`]]}>
-            <Text style={styles.statusText}>{STATUS_LABEL[schedule.status]}</Text>
-          </View>
-        </View>
+      <LargeTitle title={schedule.title} subtitle={STATUS_LABEL[schedule.status]} />
 
-        <Detail label="When" value={formatScheduleRule(schedule)} />
-        <Detail
+      <ListSection>
+        <DetailRow label="When" value={formatScheduleRule(schedule)} />
+        <DetailRow
           label="Timezone"
           value={`${formatTimezone(schedule.timezone)} (${schedule.timezone})`}
         />
-        <Detail
+        <DetailRow
           label="Next run"
           value={canPause && schedule.status === 'paused' ? 'Paused' : nextRun}
         />
-        <Detail
+        <DetailRow
           label="Results go to"
           value={schedule.delivery_target ? `${delivery} · ${schedule.delivery_target}` : delivery}
         />
-        <Text style={styles.detailLabel}>Task</Text>
-        <Text style={styles.taskText}>{schedule.task}</Text>
-        {onOpenSource ? (
-          <TouchableOpacity onPress={onOpenSource} activeOpacity={0.7}>
-            <Text style={styles.linkText}>Open the chat it came from</Text>
-          </TouchableOpacity>
+      </ListSection>
+
+      <ListSection header="Task">
+        <View style={styles.taskCell}>
+          <AppText variant="body">{schedule.task}</AppText>
+        </View>
+        {onOpenSource ? <ListRow title="Open the chat it came from" onPress={onOpenSource} /> : null}
+      </ListSection>
+
+      <ListSection>
+        <ListRow
+          title="Run now"
+          action
+          accessory={spinner('run')}
+          disabled={isCancelled || blocked('run')}
+          onPress={onRunNow}
+        />
+        {canPause ? (
+          <ListRow
+            title={schedule.status === 'active' ? 'Pause' : 'Resume'}
+            action
+            accessory={spinner('toggle')}
+            disabled={blocked('toggle')}
+            onPress={onTogglePause}
+          />
         ) : null}
+      </ListSection>
 
-        <View style={styles.actionRow}>
-          <ActionButton
-            label="Run now"
-            primary
-            busy={busy === 'run'}
-            disabled={isCancelled || busy !== null}
-            onPress={onRunNow}
+      <ListSection>
+        {canPause ? (
+          <ListRow
+            title="Cancel schedule"
+            destructive
+            action
+            accessory={spinner('cancel')}
+            disabled={blocked('cancel')}
+            onPress={onCancel}
           />
-          {canPause ? (
-            <ActionButton
-              label={schedule.status === 'active' ? 'Pause' : 'Resume'}
-              busy={busy === 'toggle'}
-              disabled={busy !== null}
-              onPress={onTogglePause}
-            />
-          ) : null}
-          {!isCancelled ? (
-            <ActionButton label="Edit" disabled={busy !== null} onPress={onEdit} />
-          ) : null}
-        </View>
-        <View style={styles.actionRow}>
-          {schedule.status === 'active' || schedule.status === 'paused' ? (
-            <ActionButton
-              label="Cancel schedule"
-              danger
-              busy={busy === 'cancel'}
-              disabled={busy !== null}
-              onPress={onCancel}
-            />
-          ) : null}
-          <ActionButton
-            label="Delete"
-            danger
-            busy={busy === 'delete'}
-            disabled={busy !== null}
-            onPress={onDelete}
-          />
-        </View>
-      </View>
+        ) : null}
+        <ListRow
+          title="Delete schedule"
+          destructive
+          action
+          accessory={spinner('delete')}
+          disabled={blocked('delete')}
+          onPress={onDelete}
+        />
+      </ListSection>
 
-      <Text style={styles.sectionTitle}>History{runsTotal ? ` · ${runsTotal}` : ''}</Text>
+      <AppText variant="footnote" color="secondary" style={styles.historyHeader}>
+        {`History${runsTotal ? ` · ${runsTotal}` : ''}`.toUpperCase()}
+      </AppText>
     </View>
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+/** A label over its value, as iOS shows details that can run long. */
+function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
+    <View style={styles.detailCell}>
+      <AppText variant="footnote" color="secondary">
+        {label}
+      </AppText>
+      <AppText variant="body">{value}</AppText>
     </View>
-  );
-}
-
-function ActionButton({
-  label,
-  onPress,
-  primary = false,
-  danger = false,
-  busy = false,
-  disabled = false,
-}: {
-  label: string;
-  onPress: () => void;
-  primary?: boolean;
-  danger?: boolean;
-  busy?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <TouchableOpacity
-      style={[
-        styles.actionButton,
-        primary && styles.actionPrimary,
-        danger && styles.actionDanger,
-        disabled && !busy && styles.actionDisabled,
-      ]}
-      onPress={onPress}
-      disabled={disabled}
-      activeOpacity={0.8}
-      accessibilityRole="button"
-      accessibilityState={{ disabled, busy }}>
-      {busy ? (
-        <ActivityIndicator size="small" color={primary ? Colors.white : Colors.iconDark} />
-      ) : (
-        <Text
-          style={[
-            styles.actionText,
-            primary && styles.actionTextPrimary,
-            danger && styles.actionTextDanger,
-          ]}>
-          {label}
-        </Text>
-      )}
-    </TouchableOpacity>
   );
 }
 
 function RunRow({
   run,
+  isFirst,
+  isLast,
   isExpanded,
   onToggle,
   onOpenInChat,
 }: {
   run: ScheduleRun;
+  /** The history is one inset group: its first and last rows round its corners. */
+  isFirst: boolean;
+  isLast: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onOpenInChat: (() => void) | null;
 }) {
+  const [pressed, setPressed] = useState(false);
   const state = RUN_STATUS[run.status];
   const text = run.status === 'succeeded' ? run.summary : run.error_message;
   return (
-    <TouchableOpacity
-      style={styles.runRow}
-      onPress={onToggle}
-      activeOpacity={0.8}
-      disabled={!text}
-      accessibilityRole="button"
-      accessibilityState={{ expanded: isExpanded }}>
-      <View style={styles.runHeader}>
-        <View style={[styles.runDot, { backgroundColor: state.color }]} />
-        <Text style={styles.runStatus}>{state.label}</Text>
-        <Text style={styles.runMeta}>
-          {run.trigger === 'manual' ? 'Run manually' : 'Scheduled'} ·{' '}
-          {formatRelativeTime(run.scheduled_for ?? run.started_at)}
-        </Text>
-      </View>
-      {text ? (
-        <Text style={styles.runText} numberOfLines={isExpanded ? undefined : 3}>
-          {text}
-        </Text>
-      ) : null}
+    <Animated.View
+      style={[
+        styles.runCell,
+        isFirst && styles.runFirst,
+        isLast && styles.runLast,
+        pressed ? styles.cellPressed : styles.cellIdle,
+      ]}>
+      <Pressable
+        style={styles.runMain}
+        onPress={onToggle}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
+        disabled={!text}
+        unstable_pressDelay={40}
+        pressRetentionOffset={16}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: isExpanded }}>
+        <View style={styles.runHeader}>
+          <View style={[styles.runDot, { backgroundColor: state.color }]} />
+          <AppText variant="headline">{state.label}</AppText>
+          <AppText variant="footnote" color="secondary" numberOfLines={1} style={styles.runMeta}>
+            {run.trigger === 'manual' ? 'Run manually' : 'Scheduled'} ·{' '}
+            {formatRelativeTime(run.scheduled_for ?? run.started_at)}
+          </AppText>
+        </View>
+        {text ? (
+          <AppText variant="subheadline" numberOfLines={isExpanded ? undefined : 3}>
+            {text}
+          </AppText>
+        ) : null}
+      </Pressable>
       {onOpenInChat && run.status !== 'skipped' ? (
-        <TouchableOpacity onPress={onOpenInChat} activeOpacity={0.7}>
-          <Text style={styles.linkText}>Open in chat</Text>
-        </TouchableOpacity>
+        <Button
+          title="Open in chat"
+          variant="plain"
+          size="small"
+          onPress={onOpenInChat}
+          containerStyle={styles.openInChat}
+        />
       ) : null}
-    </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+/** The hairline between runs, inset from the group's leading edge like ListSection's. */
+function RunSeparator() {
+  return (
+    <View style={styles.separatorTrack}>
+      <View style={styles.separator} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.groupedBackground,
   },
   spinner: {
     marginVertical: 24,
   },
   centered: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
   },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    textAlign: 'center',
-  },
-  emptyText: {
-    marginTop: 6,
-    fontSize: 13,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 18,
-    backgroundColor: Colors.primarySubtle,
-  },
-  retryText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary,
+  editButton: {
+    paddingHorizontal: 4,
+    paddingVertical: 10,
   },
   listContent: {
-    padding: 16,
     paddingBottom: 32,
   },
-  card: {
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.white,
+  detailCell: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 2,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 8,
-  },
-  title: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    letterSpacing: -0.3,
-  },
-  statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  status_active: {
-    backgroundColor: Colors.successLight,
-  },
-  status_paused: {
-    backgroundColor: Colors.warningLight,
-  },
-  status_cancelled: {
-    backgroundColor: Colors.errorLight,
-  },
-  status_completed: {
-    backgroundColor: Colors.surface,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  detailRow: {
-    marginTop: 10,
-  },
-  detailLabel: {
-    marginTop: 10,
-    fontSize: 11,
-    fontWeight: '600',
-    color: Colors.iconMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  detailValue: {
-    marginTop: 2,
-    fontSize: 14.5,
-    color: Colors.iconDark,
-  },
-  taskText: {
-    marginTop: 2,
-    fontSize: 14.5,
-    lineHeight: 20,
-    color: Colors.iconDark,
-  },
-  linkText: {
-    marginTop: 8,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 14,
-  },
-  actionButton: {
-    minWidth: 84,
-    height: 38,
-    paddingHorizontal: 14,
-    borderRadius: 19,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionPrimary: {
-    backgroundColor: Colors.primary,
-  },
-  actionDanger: {
-    backgroundColor: Colors.errorLight,
-  },
-  actionDisabled: {
-    opacity: 0.45,
-  },
-  actionText: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  actionTextPrimary: {
-    color: Colors.white,
-  },
-  actionTextDanger: {
-    color: Colors.error,
-  },
-  sectionTitle: {
-    marginTop: 22,
-    marginBottom: 8,
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.iconMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  noRunsText: {
-    fontSize: 13.5,
-    color: Colors.textSecondary,
-  },
-  runRow: {
+  taskCell: {
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+  },
+  historyHeader: {
+    paddingHorizontal: ScreenMargin + 16,
+    marginBottom: 7,
+    letterSpacing: 0.2,
+  },
+  runCell: {
+    marginHorizontal: ScreenMargin,
+    backgroundColor: Colors.secondaryGroupedBackground,
+    transitionProperty: 'backgroundColor',
+    transitionTimingFunction: 'ease-out',
+  },
+  runFirst: {
+    ...continuous,
+    borderTopLeftRadius: Radius.md,
+    borderTopRightRadius: Radius.md,
+  },
+  runLast: {
+    ...continuous,
+    borderBottomLeftRadius: Radius.md,
+    borderBottomRightRadius: Radius.md,
+  },
+  // Highlight at once on touch down; fade out after release, as ListRow does.
+  cellPressed: {
+    backgroundColor: Colors.cellPressed,
+    transitionDuration: 0,
+  },
+  cellIdle: {
+    backgroundColor: Colors.secondaryGroupedBackground,
+    transitionDuration: 350,
+  },
+  runMain: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 4,
   },
   runHeader: {
     flexDirection: 'row',
@@ -693,20 +613,26 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  runStatus: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
   runMeta: {
     flex: 1,
-    fontSize: 12.5,
-    color: Colors.textSecondary,
   },
-  runText: {
-    marginTop: 6,
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: Colors.iconDark,
+  openInChat: {
+    alignSelf: 'flex-start',
+    marginLeft: 12,
+    marginTop: -6,
+    marginBottom: 6,
+  },
+  noRuns: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  separatorTrack: {
+    marginHorizontal: ScreenMargin,
+    backgroundColor: Colors.secondaryGroupedBackground,
+  },
+  separator: {
+    height: Hairline,
+    marginLeft: 16,
+    backgroundColor: Colors.separator,
   },
 });

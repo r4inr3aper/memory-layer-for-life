@@ -20,7 +20,9 @@ from app.domain.enums import Sensitivity
 from app.domain.errors import RecordNotFoundError
 from app.domain.principal import Principal
 from app.models.memory import Memory
+from app.repositories.document_repository import DocumentRepository
 from app.repositories.export_repository import ExportRepository
+from app.repositories.link_repository import LinkRepository
 from app.repositories.memory_repository import MemoryRepository
 
 EXPORT_FORMAT: Final = "muse-export"
@@ -51,6 +53,12 @@ class ExportService:
             runs = await data.schedule_runs(principal.id)
             connections = await data.connections(principal.id)
             usage = await data.usage(principal.id)
+            documents = DocumentRepository(session)
+            files = [
+                (document, await documents.chunks(document.id))
+                for document in await documents.list_for(principal.id)
+            ]
+            links = await LinkRepository(session).list_for(principal.id)
 
             history: dict[uuid.UUID, list[Json]] = defaultdict(list)
             for event in events:
@@ -161,6 +169,29 @@ class ExportService:
                         "scheduled_runs": day.scheduled_runs,
                     }
                     for day in usage
+                ],
+                "documents": [
+                    {
+                        "id": str(document.id),
+                        "title": document.title,
+                        "file_name": document.file_name,
+                        "is_resume": document.is_resume,
+                        # The file itself is not in the export; the app can download it.
+                        "has_file": document.has_file,
+                        "created_at": _time(document.created_at),
+                        "text": "\n\n".join(chunk.content for chunk in chunks),
+                    }
+                    for document, chunks in files
+                ],
+                "links": [
+                    {
+                        "id": str(link.id),
+                        "url": link.url,
+                        "title": link.title,
+                        "kind": link.kind,
+                        "created_at": _time(link.created_at),
+                    }
+                    for link in links
                 ],
             }
 

@@ -13,6 +13,12 @@ Kinds:
   the run of consecutive days with something done.
 * ``goal.quiet``: an open goal or project nobody touched for 30 days.
 * ``theme``: a topic, project, or concept mentioned several times this week.
+
+Each kind needs enough evidence before it says anything (ADR-048): a total of a handful of
+money notes, a follow-through rate when the user has never ticked anything off, or a
+"person" who only appears in expense shorthand ("raju biryani") would be confident claims
+built on noise. People come only from memories about what the user does with them, never
+from money notes, saved links, or working notes.
 """
 
 import uuid
@@ -29,8 +35,12 @@ WINDOW: Final = timedelta(days=30)
 QUIET_PERSON_MIN_MENTIONS: Final = 3
 TOP_PEOPLE: Final = 3
 THEME_MIN_MENTIONS: Final = 3
-# Done, dropped, and overdue together must reach this before a rate means anything.
-FOLLOW_THROUGH_MIN_ITEMS: Final = 3
+# Done, dropped, and overdue together must reach this before a rate means anything, and
+# the user must have closed something themselves: a rate is about what they tick off.
+FOLLOW_THROUGH_MIN_ITEMS: Final = 5
+FOLLOW_THROUGH_MIN_CLOSED: Final = 1
+# Money notes needed in a month before its total is shown, or compared with.
+MONEY_MIN_NOTES: Final = 5
 MAX_EVIDENCE: Final = 20
 
 
@@ -119,8 +129,14 @@ def money_insights(notes: Sequence[MoneyNote], today: date) -> list[Insight]:
             by_currency[note.currency].append(note)
         elif note.happened_on >= last_month:
             previous[note.currency] += note.amount
+    counts: dict[str | None, int] = defaultdict(int)
+    for note in notes:
+        if last_month <= note.happened_on < this_month:
+            counts[note.currency] += 1
     insights = []
     for currency, current in by_currency.items():
+        if len(current) < MONEY_MIN_NOTES:
+            continue
         total = sum(note.amount for note in current)
         categories: dict[str, float] = defaultdict(float)
         for note in current:
@@ -128,7 +144,7 @@ def money_insights(notes: Sequence[MoneyNote], today: date) -> list[Insight]:
         biggest = sorted(categories.items(), key=lambda pair: (-pair[1], pair[0]))[:3]
         top = ", ".join(f"{name} {_amount(value, currency)}" for name, value in biggest)
         body = f"{len(current)} money notes this month: {top}."
-        before = previous.get(currency)
+        before = previous.get(currency) if counts[currency] >= MONEY_MIN_NOTES else None
         if before:
             change = (total - before) / before * 100
             body += f" Last month: {_amount(before, currency)} ({change:+.0f}%)."
@@ -211,7 +227,10 @@ def follow_through_insight(
     done = [closure for closure in window if closure.done]
     dropped = [closure for closure in window if not closure.done]
     considered = len(done) + len(dropped) + len(overdue_ids)
-    if considered < FOLLOW_THROUGH_MIN_ITEMS:
+    if (
+        considered < FOLLOW_THROUGH_MIN_ITEMS
+        or len(done) + len(dropped) < FOLLOW_THROUGH_MIN_CLOSED
+    ):
         return None
     rate = round(len(done) / considered * 100)
     days = streak(closures, today)

@@ -16,7 +16,6 @@ to, and a browser task is free-form instructions to a browser agent: nothing can
 reading a page from submitting a form or booking, so the rule could not be enforced.
 """
 
-
 import asyncio
 import json
 import time
@@ -25,14 +24,13 @@ from datetime import datetime
 from typing import Final
 from zoneinfo import ZoneInfo
 
-
 import structlog
 from pydantic import Field, ValidationError
-
 
 from app.core.clock import Clock, utc_now
 from app.domain.enums import LlmCallOrigin, ScheduleDelivery, ScheduleFrequency, Weekday
 from app.domain.errors import (
+    AttachmentUnavailableError,
     DomainError,
     IntegrationError,
     InvalidRetrievalQueryError,
@@ -55,6 +53,7 @@ from app.integrations.llm_calls import LlmCallContext
 from app.schemas.message_metadata import (
     BrowserPreview,
     ConnectLink,
+    DraftAttachment,
     JobApplicationDraft,
     ScheduleProposal,
 )
@@ -64,6 +63,7 @@ from app.services.assistant.context import (
     TurnContext,
     WritePolicy,
 )
+from app.services.assistant.document_tools import ReadDocumentTool, SearchDocumentsTool
 from app.services.assistant.life_tools import (
     CreateReminderTool,
     ListOpenItemsTool,
@@ -76,11 +76,12 @@ from app.services.assistant.tool_base import (
     ToolOutput,
     invalid_input,
 )
+from app.services.attachments import AppAttachments, references
+from app.services.documents import DocumentService, DocumentView
 from app.services.life_state import LifeStateService
 from app.services.retrieval.documents import memory_type_label
 from app.services.retrieval.engine import RetrievalEngine, RetrievalResult
 from app.services.tool_connections import ToolConnectionService
-
 
 logger = structlog.get_logger(__name__)
 
@@ -108,12 +109,8 @@ Sleep = Callable[[float], Awaitable[None]]
 Monotonic = Callable[[], float]
 
 
-
-
 def changes_data(tool_slug: str) -> bool:
     return any(word in _WRITE_WORDS for word in tool_slug.upper().split("_"))
-
-
 
 
 def compact(value: object, limit: int = _MAX_RESULT_CHARS) -> str:
@@ -121,11 +118,7 @@ def compact(value: object, limit: int = _MAX_RESULT_CHARS) -> str:
     return text if len(text) <= limit else f"{text[:limit]}… (cut, {len(text)} characters)"
 
 
-
-
 # --- propose_schedule ----------------------------------------------------------------
-
-
 
 
 class ProposeScheduleInput(ToolInput):
@@ -142,8 +135,6 @@ class ProposeScheduleInput(ToolInput):
     delivery: ScheduleDelivery = ScheduleDelivery.CHAT
     delivery_target: str | None = Field(default=None, max_length=200)
     summary: str = Field(min_length=1, max_length=400)
-
-
 
 
 class ProposeScheduleTool:
@@ -226,11 +217,9 @@ class ProposeScheduleTool:
         },
     )
 
-
     def __init__(self, connections: ToolConnectionService, *, clock: Clock = utc_now) -> None:
         self._connections = connections
         self._clock = clock
-
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         if not turn.allow_proposals:
@@ -261,7 +250,6 @@ class ProposeScheduleTool:
         except DomainError as error:
             return ToolOutput(error.message, is_error=True)
 
-
         app = delivery_app(proposal_input.delivery)
         if app is not None and app not in await self._connections.last_connected(turn.principal):
             spec = find_tool(app)
@@ -271,7 +259,6 @@ class ProposeScheduleTool:
                 "(connect_app), or deliver to chat instead.",
                 is_error=True,
             )
-
 
         turn.proposal = ScheduleProposal(
             title=proposal_input.title,
@@ -294,8 +281,6 @@ class ProposeScheduleTool:
         )
 
 
-
-
 def _proposal_rule(fields: RuleFields, now: datetime) -> ScheduleRule:
     """The rule, checked: it must have a run still to come, or confirming would fail."""
     rule = fields.build(now)
@@ -306,18 +291,12 @@ def _proposal_rule(fields: RuleFields, now: datetime) -> ScheduleRule:
     return rule
 
 
-
-
 # --- browse_web ----------------------------------------------------------------------
-
-
 
 
 class BrowseWebInput(ToolInput):
     task: str = Field(min_length=1, max_length=2000)
     start_url: str | None = Field(default=None, max_length=2000)
-
-
 
 
 class BrowseWebTool:
@@ -344,7 +323,6 @@ class BrowseWebTool:
         },
     )
 
-
     def __init__(
         self,
         browser: BrowserbaseClient,
@@ -358,7 +336,6 @@ class BrowseWebTool:
         self._sleep = sleep
         self._monotonic = monotonic
 
-
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
             browse_input = BrowseWebInput.model_validate(arguments)
@@ -369,12 +346,10 @@ class BrowseWebTool:
         ):
             return ToolOutput("start_url must be a full http(s) URL.", is_error=True)
 
-
         task = browse_input.task
         if browse_input.start_url:
             task = f"{task}\nStart at {browse_input.start_url}."
         deadline = self._monotonic() + self._timeout_seconds
-
 
         run = await self._browser.start_run(task)
         try:
@@ -391,7 +366,6 @@ class BrowseWebTool:
             # than leave a browser working, and billing, for nobody.
             await asyncio.shield(self._stop(run.run_id))
             raise
-
 
         if not run.finished:
             # Nobody would ever collect its result, so it is stopped, not left running.
@@ -411,7 +385,6 @@ class BrowseWebTool:
                 is_error=True,
             )
 
-
         status = _browser_status(run)
         await self._publish(turn, run, browse_input.task, preview.live_view_url, status)
         return ToolOutput(
@@ -425,7 +398,6 @@ class BrowseWebTool:
             ),
             is_error=status == "failed",
         )
-
 
     async def _publish(
         self,
@@ -452,14 +424,11 @@ class BrowseWebTool:
         await turn.emit(BrowserUpdate(preview))
         return preview
 
-
     async def _stop(self, run_id: str) -> None:
         try:
             await self._browser.stop_run(run_id)
         except IntegrationError:
             logger.warning("browser_run_stop_failed", run_id=run_id)
-
-
 
 
 def _browser_status(run: BrowserRun) -> str:
@@ -468,27 +437,40 @@ def _browser_status(run: BrowserRun) -> str:
     return "completed" if run.status == "COMPLETED" else "failed"
 
 
-
-
 # --- App tools -----------------------------------------------------------------------
 
 
-
-
 class AppAccess:
-    """Composio sessions and connected accounts, looked up once per turn."""
+    """Composio sessions and connected accounts, looked up once per turn, and the user's
+    files attached where the assistant referenced them (ADR-050)."""
 
-
-    def __init__(self, composio: ComposioClient, connections: ToolConnectionService) -> None:
+    def __init__(
+        self,
+        composio: ComposioClient,
+        connections: ToolConnectionService,
+        attachments: AppAttachments | None = None,
+    ) -> None:
         self.composio = composio
         self.connections = connections
+        self.attachments = attachments
 
+    async def with_files(
+        self, turn: TurnContext, app: str, slug: str, arguments: Mapping[str, object]
+    ) -> dict[str, object]:
+        """The arguments with each file reference replaced by the user's file, staged for
+        this action. A reference that cannot be resolved stops the action."""
+        if self.attachments is None:
+            if references(arguments):
+                raise AttachmentUnavailableError("Files cannot be attached right now.")
+            return dict(arguments)
+        return await self.attachments.stage(
+            turn.principal.id, arguments, toolkit=app, tool_slug=slug
+        )
 
     async def accounts(self, turn: TurnContext) -> dict[str, list[str]]:
         if turn.active_accounts is None:
             turn.active_accounts = await self.connections.active_accounts(turn.principal)
         return turn.active_accounts
-
 
     async def session(self, turn: TurnContext, app: str) -> str | None:
         """The app's tool session, or None when the user has not connected the app."""
@@ -502,8 +484,6 @@ class AppAccess:
         return turn.app_sessions[app]
 
 
-
-
 def _not_connected(app: str, turn: TurnContext) -> ToolOutput:
     spec = find_tool(app)
     name = spec.name if spec is not None else app
@@ -514,18 +494,12 @@ def _not_connected(app: str, turn: TurnContext) -> ToolOutput:
     )
 
 
-
-
 _APP_PROPERTY: Final = {"type": "string", "enum": _APP_SLUGS, "description": "The app."}
-
-
 
 
 class FindAppToolsInput(ToolInput):
     app: str
     use_case: str = Field(min_length=1, max_length=1000)
-
-
 
 
 class FindAppToolsTool:
@@ -549,10 +523,8 @@ class FindAppToolsTool:
         },
     )
 
-
     def __init__(self, access: AppAccess) -> None:
         self._access = access
-
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
@@ -582,15 +554,11 @@ class FindAppToolsTool:
         return ToolOutput(compact({"connected": True, "tools": tools}))
 
 
-
-
 class RunAppToolInput(ToolInput):
     app: str
     tool_slug: str = Field(min_length=1, max_length=200)
     arguments: dict[str, object] = Field(default_factory=dict)
     confirmed: bool = False
-
-
 
 
 class RunAppToolTool:
@@ -607,7 +575,13 @@ class RunAppToolTool:
             "properties": {
                 "app": _APP_PROPERTY,
                 "tool_slug": {"type": "string", "description": "A slug from find_app_tools."},
-                "arguments": {"type": "object", "description": "The action's input."},
+                "arguments": {
+                    "type": "object",
+                    "description": (
+                        "The action's input. To attach one of the user's files, put "
+                        '{"document": "<its title, or resume>"} where the action takes a file.'
+                    ),
+                },
                 "confirmed": {
                     "type": "boolean",
                     "description": (
@@ -619,10 +593,8 @@ class RunAppToolTool:
         },
     )
 
-
     def __init__(self, access: AppAccess) -> None:
         self._access = access
-
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
@@ -636,7 +608,11 @@ class RunAppToolTool:
         if not slug.lower().startswith(f"{app}_"):
             return ToolOutput(f"{slug} is not an action of {app}.", is_error=True)
         writes_data = changes_data(slug)
-        if turn.write_policy is WritePolicy.DELIVERY_APP_ONLY and writes_data and app != turn.delivery_app:
+        if (
+            turn.write_policy is WritePolicy.DELIVERY_APP_ONLY
+            and writes_data
+            and app != turn.delivery_app
+        ):
             return ToolOutput(
                 "A scheduled run may only change data in the app it delivers to.",
                 is_error=True,
@@ -652,11 +628,11 @@ class RunAppToolTool:
                 is_error=True,
             )
 
-
         session_id = await self._access.session(turn, app)
         if session_id is None:
             return _not_connected(app, turn)
-        execution = await self._access.composio.execute_tool(session_id, slug, run_input.arguments)
+        action_arguments = await self._access.with_files(turn, app, slug, run_input.arguments)
+        execution = await self._access.composio.execute_tool(session_id, slug, action_arguments)
         if execution.successful:
             turn.executed.append((app, slug))
         return ToolOutput(
@@ -671,12 +647,8 @@ class RunAppToolTool:
         )
 
 
-
-
 class ConnectAppInput(ToolInput):
     app: str
-
-
 
 
 class ConnectAppTool:
@@ -690,10 +662,8 @@ class ConnectAppTool:
         input_schema={"type": "object", "properties": {"app": _APP_PROPERTY}, "required": ["app"]},
     )
 
-
     def __init__(self, connections: ToolConnectionService) -> None:
         self._connections = connections
-
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
@@ -719,7 +689,7 @@ class ConnectAppTool:
 
 
 class PrepareJobApplicationDraftInput(ToolInput):
-    linkedin_post_url: str = Field(min_length=1, max_length=2000)
+    linkedin_post_url: str | None = Field(default=None, max_length=2000)
     recipient_email: str = Field(min_length=3, max_length=254)
     subject: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=_MAX_EMAIL_BODY_CHARS)
@@ -743,7 +713,10 @@ class PrepareJobApplicationDraftTool:
             "properties": {
                 "linkedin_post_url": {
                     "type": "string",
-                    "description": "The LinkedIn hiring post URL the draft is based on.",
+                    "description": (
+                        "The job post the draft answers (a LinkedIn post or a job page), "
+                        "when there is one."
+                    ),
                 },
                 "recipient_email": {
                     "type": "string",
@@ -773,11 +746,15 @@ class PrepareJobApplicationDraftTool:
                 },
                 "send_arguments": {
                     "type": "object",
-                    "description": "Arguments that send_tool_slug needs to send the email.",
+                    "description": (
+                        "Arguments that send_tool_slug needs to send the email. To attach "
+                        "one of the user's files, put "
+                        '{"document": "<its title, or resume>"} '
+                        "as the value of the action's attachment argument."
+                    ),
                 },
             },
             "required": [
-                "linkedin_post_url",
                 "recipient_email",
                 "subject",
                 "body",
@@ -787,6 +764,9 @@ class PrepareJobApplicationDraftTool:
         },
     )
 
+    def __init__(self, attachments: AppAttachments | None) -> None:
+        self._attachments = attachments
+
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
             draft_input = PrepareJobApplicationDraftInput.model_validate(arguments)
@@ -794,12 +774,24 @@ class PrepareJobApplicationDraftTool:
             return invalid_input(error)
         app = draft_input.app.strip().lower()
         if app not in _EMAIL_APPS:
-            return ToolOutput("Email drafts can be sent only through gmail or outlook.", is_error=True)
+            return ToolOutput(
+                "Email drafts can be sent only through gmail or outlook.", is_error=True
+            )
         slug = draft_input.send_tool_slug.strip().upper()
         if not slug.lower().startswith(f"{app}_"):
             return ToolOutput(f"{slug} is not an action of {app}.", is_error=True)
+        send_arguments: dict[str, object] = dict(draft_input.send_arguments)
+        attached: list[DocumentView] = []
+        if references(send_arguments):
+            if self._attachments is None:
+                return ToolOutput("Files cannot be attached right now.", is_error=True)
+            # The card shows exactly these files, and Send attaches exactly these.
+            send_arguments, attached = await self._attachments.pin(
+                turn.principal.id, send_arguments
+            )
+        post_url = (draft_input.linkedin_post_url or "").strip() or None
         turn.job_application_draft = JobApplicationDraft(
-            linkedin_post_url=draft_input.linkedin_post_url.strip(),
+            linkedin_post_url=post_url,
             recipient_email=draft_input.recipient_email.strip(),
             subject=draft_input.subject.strip(),
             body=draft_input.body.strip(),
@@ -807,15 +799,28 @@ class PrepareJobApplicationDraftTool:
             role_title=draft_input.role_title.strip() if draft_input.role_title else None,
             delivery_app=app,
             send_tool_slug=slug,
-            send_arguments=draft_input.send_arguments,
+            send_arguments=send_arguments,
+            attachments=[
+                DraftAttachment(
+                    document_id=document.id,
+                    title=document.title,
+                    file_name=document.file_name,
+                    media_type=document.media_type,
+                    size_bytes=document.size_bytes,
+                )
+                for document in attached
+            ],
             status="pending",
         )
-        return ToolOutput(
-            "A send-review card is shown with this draft. Tell the user to review it and "
-            "tap Send when they are ready."
+        files = (
+            " Attached: " + ", ".join(document.file_name for document in attached) + "."
+            if attached
+            else " No file is attached."
         )
-
-
+        return ToolOutput(
+            "A send-review card is shown with this draft." + files + " Tell the user to "
+            "review it and tap Send when they are ready."
+        )
 
 
 # --- search_memories -----------------------------------------------------------------
@@ -825,13 +830,9 @@ _MAX_MEMORY_RESULTS: Final = 10
 _MAX_EVIDENCE_QUOTE: Final = 200
 
 
-
-
 class SearchMemoriesInput(ToolInput):
     query: str = Field(min_length=1, max_length=300)
     limit: int = Field(default=5, ge=1, le=_MAX_MEMORY_RESULTS)
-
-
 
 
 class SearchMemoriesTool:
@@ -864,10 +865,8 @@ class SearchMemoriesTool:
         },
     )
 
-
     def __init__(self, engine: RetrievalEngine) -> None:
         self._engine = engine
-
 
     async def run(self, arguments: Mapping[str, object], turn: TurnContext) -> ToolOutput:
         try:
@@ -884,8 +883,6 @@ class SearchMemoriesTool:
             context=LlmCallContext(origin=LlmCallOrigin.RETRIEVAL, user_id=turn.principal.id),
         )
         return ToolOutput(format_memories(result, timezone_name=turn.timezone_name))
-
-
 
 
 def format_memories(result: RetrievalResult, *, timezone_name: str) -> str:
@@ -914,16 +911,11 @@ def format_memories(result: RetrievalResult, *, timezone_name: str) -> str:
     return "\n".join(lines)
 
 
-
-
 # --- Toolbox -------------------------------------------------------------------------
-
-
 
 
 class AssistantToolbox:
     """Builds the tool set for a chat turn or a scheduled run from what is configured."""
-
 
     def __init__(
         self,
@@ -934,6 +926,8 @@ class AssistantToolbox:
         browser_timeout_seconds: float,
         memories: RetrievalEngine | None = None,
         life: LifeStateService | None = None,
+        documents: DocumentService | None = None,
+        attachments: AppAttachments | None = None,
         sleep: Sleep = asyncio.sleep,
         monotonic: Monotonic = time.monotonic,
         clock: Clock = utc_now,
@@ -941,6 +935,11 @@ class AssistantToolbox:
         self._connections = connections
         self._propose = ProposeScheduleTool(connections, clock=clock)
         self._memories = SearchMemoriesTool(memories) if memories is not None else None
+        self._documents: tuple[AssistantTool, ...] = (
+            (ReadDocumentTool(documents), SearchDocumentsTool(documents))
+            if documents is not None
+            else ()
+        )
         self._life_read: tuple[AssistantTool, ...] = (
             (ListOpenItemsTool(life),) if life is not None else ()
         )
@@ -956,13 +955,14 @@ class AssistantToolbox:
             if browser is not None
             else None
         )
-        access = AppAccess(composio, connections) if composio is not None else None
+        access = AppAccess(composio, connections, attachments) if composio is not None else None
         self._app_tools: tuple[AssistantTool, ...] = (
             (FindAppToolsTool(access), RunAppToolTool(access)) if access is not None else ()
         )
-        self._prepare_job_draft = PrepareJobApplicationDraftTool() if access is not None else None
+        self._prepare_job_draft = (
+            PrepareJobApplicationDraftTool(attachments) if access is not None else None
+        )
         self._connect = ConnectAppTool(connections) if composio is not None else None
-
 
     @property
     def capabilities(self) -> Capabilities:
@@ -971,8 +971,8 @@ class AssistantToolbox:
             apps=bool(self._app_tools),
             memories=self._memories is not None,
             life=bool(self._life_read),
+            documents=bool(self._documents),
         )
-
 
     def for_chat(self) -> list[AssistantTool]:
         tools: list[AssistantTool] = [self._propose]
@@ -980,6 +980,7 @@ class AssistantToolbox:
             tools.append(self._memories)
         tools.extend(self._life_read)
         tools.extend(self._life_write)
+        tools.extend(self._documents)
         if self._browse is not None:
             tools.append(self._browse)
         tools.extend(self._app_tools)
@@ -989,24 +990,17 @@ class AssistantToolbox:
             tools.append(self._connect)
         return tools
 
-
     def for_schedule(self) -> list[AssistantTool]:
         """No browser and no proposals or connect links (see the module docstring)."""
         tools: list[AssistantTool] = []
         if self._memories is not None:
             tools.append(self._memories)
-        # Reading the user's list is fine in a run; changing it is not.
+        # Reading the user's list and documents is fine in a run; changing them is not.
         tools.extend(self._life_read)
+        tools.extend(self._documents)
         tools.extend(self._app_tools)
         return tools
- 
-
 
 
 def delivery_app(delivery: ScheduleDelivery) -> str | None:
     return DELIVERY_TOOLKITS.get(delivery)
-
-
-
-
-

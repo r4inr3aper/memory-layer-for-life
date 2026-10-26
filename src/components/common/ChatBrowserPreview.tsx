@@ -1,15 +1,16 @@
+/**
+ * ChatBrowserPreview
+ *
+ * The cloud browser under an assistant message, as an iOS card: while the session is open,
+ * its live view with an Open Browser button below it; otherwise one line of status.
+ */
 
+import { AppText, Button, Card } from "@/components/ui";
 import { Colors } from "@/constants/colors";
 import { ChatBrowserPreviewData } from "@/types";
 
 import * as WebBrowser from "expo-web-browser";
-import {
-    ActivityIndicator,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 type ChatBrowserPreviewProps = {
@@ -34,19 +35,31 @@ export function ChatBrowserPreview({
 
     if (!liveViewUrl || !isLive) {
         return (
-            <View style={[styles.browserPreview, styles.statusRow]}>
+            <Card style={[styles.card, styles.statusRow]}>
                 {browserPreview.status === "running" ? (
-                    <ActivityIndicator size="small" color={Colors.iconDark} />
+                    <ActivityIndicator
+                        size="small"
+                        color={Colors.secondaryLabel}
+                    />
                 ) : null}
-                <Text style={styles.statusText} numberOfLines={2}>
+                <AppText
+                    variant="footnote"
+                    color={
+                        browserPreview.status === "failed"
+                            ? "destructive"
+                            : "secondary"
+                    }
+                    numberOfLines={2}
+                    style={styles.statusText}
+                >
                     {STATUS_TEXT[browserPreview.status] ?? STATUS_TEXT.running}
-                </Text>
-            </View>
+                </AppText>
+            </Card>
         );
     }
 
     return (
-        <View style={styles.browserPreview}>
+        <Card style={[styles.card, styles.liveCard]}>
             <WebView
                 source={{ uri: liveViewUrl }}
                 style={styles.browserPreviewFrame}
@@ -56,36 +69,34 @@ export function ChatBrowserPreview({
                 startInLoadingState
                 renderLoading={() => (
                     <View style={styles.browserPreviewLoading}>
-                        <ActivityIndicator color={Colors.iconDark} />
+                        <ActivityIndicator color={Colors.secondaryLabel} />
                     </View>
                 )}
             />
 
-            <TouchableOpacity
-                activeOpacity={0.85}
-                style={styles.openBrowserButton}
-                onPress={() => WebBrowser.openBrowserAsync(liveViewUrl)}>
-                <Text style={styles.openBrowserButtonText}>
-                    Open Browser
-                </Text>
-            </TouchableOpacity>
-        </View>
+            <View style={styles.footer}>
+                <Button
+                    title="Open Browser"
+                    variant="tinted"
+                    block
+                    onPress={() => void WebBrowser.openBrowserAsync(liveViewUrl)}
+                />
+            </View>
+        </Card>
     );
 }
 
 const styles = StyleSheet.create({
-    browserPreview: {
-        marginTop: 12,
-        backgroundColor: Colors.browserPreviewBg,
-        borderWidth: 1,
-        borderColor: Colors.border,
-        borderRadius: 16,
+    card: {
+        backgroundColor: Colors.groupedBackground,
+    },
+    liveCard: {
+        padding: 0,
         overflow: "hidden",
     },
     browserPreviewFrame: {
         height: 220,
-        backgroundColor: Colors.white,
-        minWidth: 200
+        backgroundColor: Colors.systemBackground,
     },
     browserPreviewLoading: {
         position: "absolute",
@@ -95,33 +106,19 @@ const styles = StyleSheet.create({
         left: 0,
         alignItems: "center",
         justifyContent: "center",
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.systemBackground,
     },
-    openBrowserButton: {
-        marginHorizontal: 12,
-        marginBottom: 12,
-        height: 40,
-        borderRadius: 20,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: Colors.iconDark,
-    },
-    openBrowserButtonText: {
-        fontSize: 14,
-        fontWeight: "700",
-        color: Colors.white,
+    footer: {
+        padding: 12,
     },
     statusRow: {
         flexDirection: "row",
         alignItems: "center",
         gap: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
     },
     statusText: {
         flexShrink: 1,
-        fontSize: 13,
-        fontWeight: "600",
-        color: Colors.textSecondary,
     },
 });

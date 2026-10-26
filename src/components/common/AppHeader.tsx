@@ -1,18 +1,30 @@
 /**
  * AppHeader Component
  *
- * Sticky top navigation bar featuring:
- * - Left: Circular 2-line drawer menu trigger with active notification blue dot
- * - Center: the agent's avatar (saved agent profile) with interactive floating name pill
- * - Right: Circular 3-dots action sheet menu button
+ * The navigation bar shared by the tabs, laid out like a conversation in Messages:
+ * - Left: a round button that opens the chat list
+ * - Center: the agent's avatar with its name under it; tapping it edits the agent
+ * - Right: a round button with the "…" menu
+ *
+ * Over the chat it is the bar material (nearly opaque white) with a hairline under it; over
+ * the grouped screens it takes their gray and no line, as an iOS bar does at the top of a
+ * list.
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { MenuTwoLineIcon, MoreHorizontalIcon } from '@hugeicons/core-free-icons';
+import {
+  ArrowRight01Icon,
+  MoreHorizontalIcon,
+  SidebarLeftIcon,
+} from '@hugeicons/core-free-icons';
 import { Colors } from '@/constants/colors';
+import { Hairline, ScreenMargin } from '@/constants/theme';
 import { useAgentProfile } from '@/context/AgentProfileContext';
+import { AppText } from '@/components/ui/AppText';
+import { IconButton } from '@/components/ui/IconButton';
+import { PressableScale } from '@/components/ui/PressableScale';
 import { MascotAvatar } from './MascotAvatar';
 
 export interface AppHeaderProps {
@@ -22,74 +34,56 @@ export interface AppHeaderProps {
   onOpenSettings: () => void;
   /** Callback triggered when tapping the center mascot/name pill */
   onMascotPress?: () => void;
+  /** The screen under it: the white chat, or a grouped (gray) screen. */
+  background?: 'plain' | 'grouped';
 }
 
-/**
- * Global Top Header with 3D Mascot and Action Triggers
- */
 export const AppHeader: React.FC<AppHeaderProps> = ({
   onOpenSidebar,
   onOpenSettings,
   onMascotPress,
+  background = 'plain',
 }) => {
   const { profile } = useAgentProfile();
+  // On gray, the round buttons are white, as iOS draws them over a grouped list.
+  const buttonSurface = background === 'grouped' ? styles.buttonOnGrouped : undefined;
 
   return (
-    <View style={styles.headerContainer}>
-
-      {/* Left Action: Circular White Button with 2 lines and Blue Status Dot */}
+    <View style={[styles.headerContainer, background === 'grouped' && styles.headerGrouped]}>
       <View style={styles.sideCol}>
-        <TouchableOpacity
-          style={styles.circleBtn}
+        <IconButton
+          icon={SidebarLeftIcon}
           onPress={onOpenSidebar}
-          activeOpacity={0.7}
-          accessibilityLabel="Open sidebar and drawer"
-          accessibilityRole="button">
-          <HugeiconsIcon
-            icon={MenuTwoLineIcon}
-            size={22}
-            color={Colors.iconDark}
-            strokeWidth={2.2}
-          />
-          {/* Blue status / notification indicator dot */}
-          <View style={styles.blueDot} />
-        </TouchableOpacity>
+          accessibilityLabel="Open the chat list"
+          size={38}
+          style={buttonSurface}
+          iconSize={21}
+        />
       </View>
 
-      {/* Center: 3D Mascot Character with Floating 'Cooper' Name Capsule Below */}
-      <TouchableOpacity
-        style={styles.centerCol}
+      <PressableScale
         onPress={onMascotPress || onOpenSettings}
-        activeOpacity={0.85}
-        accessibilityLabel={`${profile.name} profile`}
-        accessibilityRole="button">
-        <View style={styles.mascotContainer}>
-          <MascotAvatar size={54} icon={profile.icon} color={profile.color} />
-        </View>
-
-        {/* Floating Capsule Name Pill */}
-        <View style={styles.nameCapsule}>
-          <Text style={styles.agentNameText} numberOfLines={1}>
+        accessibilityRole="button"
+        accessibilityLabel={`${profile.name}, edit name and avatar`}
+        style={styles.centerCol}>
+        <MascotAvatar size={38} icon={profile.icon} color={profile.color} />
+        <View style={styles.nameRow}>
+          <AppText variant="caption1" weight="600" numberOfLines={1} style={styles.agentName}>
             {profile.name}
-          </Text>
+          </AppText>
+          <HugeiconsIcon icon={ArrowRight01Icon} size={11} color={Colors.tertiaryLabel} strokeWidth={2.6} />
         </View>
-      </TouchableOpacity>
+      </PressableScale>
 
-      {/* Right Action: Circular White Button with 3 Horizontal Dots */}
       <View style={[styles.sideCol, styles.rightCol]}>
-        <TouchableOpacity
-          style={styles.circleBtn}
+        <IconButton
+          icon={MoreHorizontalIcon}
           onPress={onOpenSettings}
-          activeOpacity={0.7}
-          accessibilityLabel="Agent settings and options"
-          accessibilityRole="button">
-          <HugeiconsIcon
-            icon={MoreHorizontalIcon}
-            size={24}
-            color={Colors.iconDark}
-            strokeWidth={2.2}
-          />
-        </TouchableOpacity>
+          accessibilityLabel="More options"
+          size={38}
+          style={buttonSurface}
+          iconSize={22}
+        />
       </View>
     </View>
   );
@@ -99,92 +93,44 @@ const styles = StyleSheet.create({
   headerContainer: {
     width: '100%',
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingHorizontal: ScreenMargin,
+    paddingTop: 4,
     paddingBottom: 6,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.barBackground,
+    borderBottomWidth: Hairline,
+    borderBottomColor: Colors.separator,
     zIndex: 10,
+  },
+  headerGrouped: {
+    backgroundColor: Colors.groupedBackground,
+    borderBottomColor: 'transparent',
+  },
+  buttonOnGrouped: {
+    backgroundColor: Colors.white,
   },
   sideCol: {
     width: 48,
     alignItems: 'flex-start',
-    paddingTop: 4,
   },
   rightCol: {
     alignItems: 'flex-end',
   },
-  circleBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    ...Platform.select({
-      ios: {
-        shadowColor: Colors.black,
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 3,
-      },
-      web: {
-        boxShadow: '0 3px 12px rgba(0, 0, 0, 0.07)',
-      },
-    }),
-  },
-  blueDot: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.statusBlue,
-    borderWidth: 1.5,
-    borderColor: Colors.white,
-  },
   centerCol: {
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 3,
   },
-  mascotContainer: {
+  nameRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nameCapsule: {
-    // Names can be up to 40 characters; keep the pill between the side buttons.
+    gap: 1,
+    // Names can be up to 40 characters; keep them between the side buttons.
     maxWidth: 200,
-    backgroundColor: Colors.white,
-    paddingHorizontal: 16,
-    paddingVertical: 5,
-    borderRadius: 20,
-    marginTop: 4,
-    ...Platform.select({
-      ios: {
-        shadowColor: Colors.black,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.07,
-        shadowRadius: 6,
-      },
-      android: {
-        elevation: 2,
-      },
-      web: {
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-      },
-    }),
   },
-  agentNameText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
+  agentName: {
+    color: Colors.label,
   },
 });
 

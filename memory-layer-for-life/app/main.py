@@ -61,12 +61,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     if index_loop is not None:
         index_loop.start()
-    # Failed and interrupted memory saves are retried in the background (ADR-044).
+    # Quiet chats are captured as memories, and failed and interrupted memory saves are
+    # retried, in the background (ADR-044, ADR-048).
     pipeline_loop = (
         PipelineLoop(
             container.pipeline_runner,
             interval_seconds=settings.PIPELINE_WORKER_INTERVAL_SECONDS,
             batch_size=settings.PIPELINE_WORKER_BATCH_SIZE,
+            # Chats are read for memories once they go quiet (ADR-048).
+            capture=container.memory_capture,
             pacer=container.pacer,
         )
         if settings.PIPELINE_WORKER_ENABLED and container.pipeline_runner.can_process

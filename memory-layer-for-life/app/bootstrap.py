@@ -42,10 +42,12 @@ from app.integrations.supabase_auth import (
 )
 from app.services.account import AccountService
 from app.services.assistant.tools import AssistantToolbox
+from app.services.attachments import AppAttachments
 from app.services.background import BackgroundWork
 from app.services.chat import ChatService
 from app.services.chat_turns import ChatTurnService, TurnLimits
 from app.services.diagnostics import DiagnosticsService, ProviderCheck
+from app.services.documents import DocumentService
 from app.services.evaluations import EvaluationService
 from app.services.export import ExportService
 from app.services.file_capture import FileCapture
@@ -53,9 +55,10 @@ from app.services.imports import ImportService
 from app.services.ingestion import IngestionLimits, IngestionService
 from app.services.insights import InsightService
 from app.services.life_state import LifeStateService
+from app.services.links import LinkService
 from app.services.llm_call_log import LlmCallLog
 from app.services.memories import MemoryService
-from app.services.memory_capture import MemoryCapture
+from app.services.memory_capture import ChatTitleHook, MemoryCapture
 from app.services.memory_review import MemoryReviewService
 from app.services.notifications import PushService
 from app.services.pacing import BackgroundPacer
@@ -70,6 +73,7 @@ from app.services.retrieval.indexer import MemoryIndexer
 from app.services.schedule_runs import ScheduleDispatcher, ScheduleRunner
 from app.services.schedules import ScheduleService
 from app.services.source_sync import SourceSyncService
+from app.services.today import TodayService
 from app.services.tool_connections import ToolConnectionService
 from app.services.usage import UsageService
 from app.services.users import UserService
@@ -115,6 +119,14 @@ class AppContainer:
     life_state_service: LifeStateService
     proactive_dispatcher: ProactiveDispatcher
     insight_service: InsightService
+    # The Feed's cards (ADR-048).
+    today_service: TodayService
+    # Chats read for memories once quiet, by the pipeline loop (ADR-048).
+    memory_capture: MemoryCapture
+    # Files the user uploads for the assistant to read (ADR-049) and attach (ADR-050).
+    document_service: DocumentService
+    # Links the user saves for the assistant to share (ADR-050).
+    link_service: LinkService
     # New memory sources.
     import_service: ImportService
     file_capture: FileCapture
@@ -140,6 +152,7 @@ def runner_config(settings: Settings) -> RunnerConfig:
         ),
         lease=timedelta(seconds=settings.PIPELINE_RUN_LEASE_SECONDS),
         timezone_name=settings.DEFAULT_TIMEZONE,
+        auto_accept=settings.MEMORY_AUTO_ACCEPT_ENABLED,
     )
 
 
@@ -255,6 +268,31 @@ def build_container(
     life_state_service = LifeStateService(
         session_factory, default_timezone=settings.DEFAULT_TIMEZONE, clock=clock
     )
+    usage_service = UsageService(
+        session_factory,
+        daily_prompt_limit=settings.ASSISTANT_DAILY_PROMPT_LIMIT,
+        currency=settings.USAGE_CURRENCY,
+        currency_per_usd=settings.USAGE_CURRENCY_PER_USD,
+        clock=clock,
+    )
+    if document_reader is None and anthropic_manager.client is not None:
+        document_reader = AnthropicDocumentReader(
+            anthropic_manager.client, model=settings.assistant_model, observer=observer
+        )
+    # Files the user uploads for the assistant to read (ADR-049).
+    document_service = DocumentService(
+        session_factory,
+        usage=usage_service,
+        reader=document_reader,
+        max_bytes=settings.DOCUMENT_MAX_BYTES,
+        max_stored_bytes=settings.DOCUMENT_STORAGE_MAX_BYTES,
+        max_text_chars=settings.DOCUMENT_MAX_TEXT_CHARS,
+        vision_fallback=settings.DOCUMENT_VISION_FALLBACK,
+        default_timezone=settings.DEFAULT_TIMEZONE,
+        clock=clock,
+    )
+    # The user's kept files, attached where the assistant refers to them (ADR-050).
+    attachments = AppAttachments(document_service, composio) if composio is not None else None
     toolbox = AssistantToolbox(
         connections=tool_connection_service,
         composio=composio,
@@ -262,13 +300,8 @@ def build_container(
         browser_timeout_seconds=settings.BROWSERBASE_RUN_TIMEOUT_SECONDS,
         memories=retrieval_engine,
         life=life_state_service,
-        clock=clock,
-    )
-    usage_service = UsageService(
-        session_factory,
-        daily_prompt_limit=settings.ASSISTANT_DAILY_PROMPT_LIMIT,
-        currency=settings.USAGE_CURRENCY,
-        currency_per_usd=settings.USAGE_CURRENCY_PER_USD,
+        documents=document_service,
+        attachments=attachments,
         clock=clock,
     )
     if push_client is None and settings.PUSH_NOTIFICATIONS_ENABLED:
@@ -295,7 +328,12 @@ def build_container(
     )
 
     pipeline_runner = PipelineRunner(
-        session_factory, active_extractor, config=runner_config(settings), clock=clock
+        session_factory,
+        active_extractor,
+        config=runner_config(settings),
+        # Side chats are named from their conversation by the extraction that reads it.
+        hooks=[ChatTitleHook()],
+        clock=clock,
     )
     ingestion_service = IngestionService(
         session_factory,
@@ -307,16 +345,15 @@ def build_container(
         ),
         clock=clock,
     )
-    if document_reader is None and anthropic_manager.client is not None:
-        document_reader = AnthropicDocumentReader(
-            anthropic_manager.client, model=settings.assistant_model, observer=observer
-        )
+    # Chats are read for memories once they go quiet, in the pipeline loop (ADR-048).
     memory_capture = MemoryCapture(
         session_factory,
         ingestion=ingestion_service,
-        runner=pipeline_runner,
-        background=background,
         enabled=settings.MEMORY_CAPTURE_ENABLED,
+        quiet_after=timedelta(seconds=settings.MEMORY_CAPTURE_QUIET_SECONDS),
+        max_unit_messages=settings.INGESTION_MAX_UNIT_MESSAGES,
+        default_timezone=settings.DEFAULT_TIMEZONE,
+        clock=clock,
     )
 
     return AppContainer(
@@ -364,6 +401,7 @@ def build_container(
             session_factory,
             composio=composio,
             connections=tool_connection_service,
+            attachments=attachments,
             clock=clock,
         ),
         chat_turn_service=ChatTurnService(
@@ -372,7 +410,6 @@ def build_container(
             toolbox=toolbox,
             background=background,
             usage=usage_service,
-            capture=memory_capture,
             max_steps=settings.ASSISTANT_MAX_STEPS,
             limits=TurnLimits(
                 max_message_chars=settings.CHAT_MAX_MESSAGE_CHARS,
@@ -422,6 +459,12 @@ def build_container(
         insight_service=InsightService(
             session_factory, default_timezone=settings.DEFAULT_TIMEZONE, clock=clock
         ),
+        today_service=TodayService(
+            session_factory, default_timezone=settings.DEFAULT_TIMEZONE, clock=clock
+        ),
+        memory_capture=memory_capture,
+        document_service=document_service,
+        link_service=LinkService(session_factory, clock=clock),
         import_service=ImportService(
             session_factory,
             ingestion_service,

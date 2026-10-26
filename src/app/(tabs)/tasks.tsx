@@ -1,29 +1,37 @@
 /**
  * Tasks Tab Screen ('/(tabs)/tasks')
  *
- * Two lists:
+ * A large title with New, a segmented control, and one of two inset-grouped lists:
  * - To do: the user's open items from their memories (TodoPanel), checked off, snoozed, or
  *   rescheduled here, in chat, or by Cooper.
  * - Schedules: each with its rule in its own timezone, its next run, and its latest result.
  *   A row opens the schedule's detail (history, edit, cancel, delete); the switch pauses or
- *   resumes it, and Run runs it now. "+ New" creates one from a form.
+ *   resumes it, and Run runs it now. New creates one from a form.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Switch,
   ActivityIndicator,
+  Pressable,
   RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { HugeiconsIcon } from '@hugeicons/react-native';
-import { Add01Icon, Target01Icon, Clock01Icon, PlayIcon } from '@hugeicons/core-free-icons';
+import { Add01Icon, Clock01Icon, PlayIcon, Target01Icon } from '@hugeicons/core-free-icons';
+import {
+  AppSwitch,
+  AppText,
+  Button,
+  EmptyState,
+  IconTile,
+  ListSection,
+  SegmentedControl,
+} from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { ScreenMargin } from '@/constants/theme';
 import { getErrorMessage, isAbortError } from '@/lib/api/client';
 import {
   listSchedules,
@@ -41,6 +49,13 @@ import { TodoPanel } from '@/components/tasks/TodoPanel';
 
 const SCHEDULE_PAGE_LIMIT = 100;
 
+type Segment = 'todo' | 'schedules';
+
+const SEGMENTS = [
+  { value: 'todo', label: 'To do' },
+  { value: 'schedules', label: 'Schedules' },
+] as const satisfies readonly { value: Segment; label: string }[];
+
 const STATUS_LABEL: Record<ScheduleStatus, string> = {
   active: 'Active',
   paused: 'Paused',
@@ -56,7 +71,8 @@ export default function TasksScreen() {
   const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
   const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
   const [isNewScheduleOpen, setIsNewScheduleOpen] = useState(false);
-  const [segment, setSegment] = useState<'todo' | 'schedules'>('todo');
+  const [isNewTodoOpen, setIsNewTodoOpen] = useState(false);
+  const [segment, setSegment] = useState<Segment>('todo');
   // Cancels run polling when the screen goes away.
   const runAbortRef = useRef<AbortController | null>(null);
 
@@ -162,203 +178,82 @@ export default function TasksScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.segmentRow} accessibilityRole="tablist">
-        {(
-          [
-            ['todo', 'To do'],
-            ['schedules', 'Schedules'],
-          ] as const
-        ).map(([value, label]) => (
-          <TouchableOpacity
-            key={value}
-            style={[styles.segment, segment === value && styles.segmentSelected]}
-            onPress={() => setSegment(value)}
-            activeOpacity={0.8}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: segment === value }}>
-            <Text style={[styles.segmentText, segment === value && styles.segmentTextSelected]}>
-              {label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.top}>
+        <View style={styles.titleRow}>
+          <AppText variant="largeTitle" numberOfLines={1} style={styles.title}>
+            Tasks
+          </AppText>
+          <Button
+            title="New"
+            icon={Add01Icon}
+            variant="tinted"
+            size="small"
+            onPress={() =>
+              segment === 'todo' ? setIsNewTodoOpen(true) : setIsNewScheduleOpen(true)
+            }
+            accessibilityLabel={segment === 'todo' ? 'New to-do' : 'New schedule'}
+          />
+        </View>
+        <SegmentedControl
+          segments={SEGMENTS}
+          value={segment}
+          onChange={setSegment}
+          style={styles.segments}
+        />
       </View>
 
-      {segment === 'todo' ? <TodoPanel /> : null}
-
-      <ScrollView
-        style={[styles.scrollArea, segment !== 'schedules' && styles.hidden]}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={refreshTasks}
-            tintColor={Colors.primary}
-          />
-        }>
-        {/* Page Title & "+ New" Button */}
-        <View style={styles.headerRow}>
-          <Text style={styles.pageTitle}>Scheduled tasks</Text>
-          <TouchableOpacity
-            style={styles.newGoalBtn}
-            onPress={() => setIsNewScheduleOpen(true)}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel="New schedule">
-            <HugeiconsIcon icon={Add01Icon} size={15} color={Colors.white} strokeWidth={2.4} />
-            <Text style={styles.newGoalText}>New</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Task Rows */}
-        {isLoading ? (
-          <View style={styles.stateContainer}>
-            <ActivityIndicator color={Colors.primary} />
-            <Text style={styles.stateText}>Loading your schedules...</Text>
-          </View>
-        ) : tasks.length === 0 ? (
-          <View style={styles.stateContainer}>
-            <View style={styles.emptyIcon}>
-              <HugeiconsIcon icon={Target01Icon} size={22} color={Colors.primary} />
+      {/* One list at a time. Hiding the other with `display: 'none'` is not enough: on
+          Android a ScrollView with a RefreshControl sits in a wrapper that keeps its
+          flex, so the hidden Schedules list took half the screen from To do. */}
+      {segment === 'todo' ? (
+        <TodoPanel isAdding={isNewTodoOpen} onAddingChange={setIsNewTodoOpen} />
+      ) : (
+        <ScrollView
+          style={styles.scrollArea}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={refreshTasks}
+              tintColor={Colors.secondaryLabel}
+              colors={[Colors.tint]}
+            />
+          }>
+          {isLoading ? (
+            <View style={styles.loading}>
+              <ActivityIndicator color={Colors.secondaryLabel} />
+              <AppText variant="footnote" color="secondary">
+                Loading your schedules...
+              </AppText>
             </View>
-            <Text style={styles.emptyTitle}>No schedules yet</Text>
-            <Text style={styles.emptyText}>
-              Tap New, or confirm a schedule from chat, and it will appear here.
-            </Text>
-          </View>
-        ) : (
-          tasks.map((task, index) => {
-            const isActive = task.status === 'active';
-            const isCancelled = task.status === 'cancelled';
-            const hasEnded = isCancelled || task.status === 'completed';
-            const isUpdating = updatingTaskId === task.id;
-            const isRunning = runningTaskId === task.id;
-
-            return (
-              <View key={task.id}>
-                <TouchableOpacity
-                  style={styles.taskRow}
-                  onPress={() =>
+          ) : tasks.length === 0 ? (
+            <EmptyState
+              icon={Target01Icon}
+              title="No schedules yet"
+              message="Tap New, or confirm a schedule from chat, and it will appear here."
+            />
+          ) : (
+            <ListSection>
+              {tasks.map((task) => (
+                <ScheduleRow
+                  key={task.id}
+                  leading
+                  task={task}
+                  isUpdating={updatingTaskId === task.id}
+                  isRunning={runningTaskId === task.id}
+                  runLocked={runningTaskId !== null}
+                  onOpen={() =>
                     router.push({ pathname: '/schedules/[id]', params: { id: task.id } })
                   }
-                  activeOpacity={0.75}
-                  accessibilityRole="button"
-                  accessibilityHint="Opens the schedule's details and history">
-                  {/* Left Target Icon Badge */}
-                  <View
-                    style={[
-                      styles.iconContainer,
-                      { backgroundColor: isActive ? Colors.primarySubtle : Colors.surfaceMuted },
-                    ]}>
-                    <HugeiconsIcon
-                      icon={Target01Icon}
-                      size={20}
-                      color={isActive ? Colors.primary : Colors.textMuted}
-                      strokeWidth={2}
-                    />
-                  </View>
-
-                  {/* Center Content */}
-                  <View style={styles.textContainer}>
-                    <Text style={[styles.taskTitle, !isActive && styles.pausedText]}>
-                      {task.title}
-                    </Text>
-
-                    <View style={styles.metaRow}>
-                      <View style={styles.scheduleItem}>
-                        <HugeiconsIcon icon={Clock01Icon} size={12} color={Colors.textMuted} />
-                        <Text style={styles.taskSchedule}>
-                          {formatScheduleRule(task)} · {formatTimezone(task.timezone)}
-                        </Text>
-                      </View>
-                      <Text style={styles.metaDot}>•</Text>
-                      <Text style={styles.executionsText}>
-                        {task.run_count} {task.run_count === 1 ? 'run' : 'runs'}
-                      </Text>
-                      <Text style={styles.metaDot}>•</Text>
-                      <Text style={styles.executionsText}>{STATUS_LABEL[task.status]}</Text>
-                      {isActive && task.next_run_local ? (
-                        <>
-                          <Text style={styles.metaDot}>•</Text>
-                          <Text style={styles.executionsText}>
-                            Next {formatLocalDateTime(task.next_run_local)}
-                          </Text>
-                        </>
-                      ) : null}
-                      {task.last_run_at ? (
-                        <>
-                          <Text style={styles.metaDot}>•</Text>
-                          <Text style={styles.executionsText}>
-                            Last run {formatRelativeTime(task.last_run_at)}
-                          </Text>
-                        </>
-                      ) : null}
-                    </View>
-                    {task.last_run_summary || task.last_run_error ? (
-                      <View
-                        style={[
-                          styles.latestRunBox,
-                          task.last_run_status !== 'succeeded' && styles.latestRunErrorBox,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.latestRunLabel,
-                            task.last_run_status !== 'succeeded' && styles.latestRunErrorLabel,
-                          ]}>
-                          {task.last_run_status === 'failed'
-                            ? 'Last run failed'
-                            : task.last_run_status === 'skipped'
-                              ? 'Last run skipped'
-                              : 'Last result'}
-                        </Text>
-                        <Text style={styles.latestRunText} numberOfLines={4}>
-                          {task.last_run_status === 'succeeded'
-                            ? task.last_run_summary
-                            : task.last_run_error}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-
-                  {/* Right Controls: Switch & Run Button */}
-                  <View style={styles.actionsCol}>
-                    <Switch
-                      value={isActive}
-                      onValueChange={(value) => handleToggle(task, value)}
-                      disabled={isUpdating || hasEnded}
-                      trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                      thumbColor={isActive ? Colors.primary : Colors.surfaceMuted}
-                    />
-
-                    <TouchableOpacity
-                      style={[
-                        styles.runManualBtn,
-                        (isRunning || isCancelled) && styles.disabledAction,
-                      ]}
-                      onPress={() => confirmRunTask(task)}
-                      disabled={runningTaskId !== null || isCancelled}
-                      activeOpacity={0.75}>
-                      {isRunning ? (
-                        <ActivityIndicator size="small" color={Colors.primary} />
-                      ) : (
-                        <HugeiconsIcon
-                          icon={PlayIcon}
-                          size={12}
-                          color={Colors.primary}
-                          strokeWidth={2.4}
-                        />
-                      )}
-                      <Text style={styles.runManualText}>{isRunning ? 'Running' : 'Run'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-
-                {index < tasks.length - 1 && <View style={styles.divider} />}
-              </View>
-            );
-          })
-        )}
-      </ScrollView>
+                  onToggle={(value) => handleToggle(task, value)}
+                  onRun={() => confirmRunTask(task)}
+                />
+              ))}
+            </ListSection>
+          )}
+        </ScrollView>
+      )}
 
       <ScheduleFormModal
         visible={isNewScheduleOpen}
@@ -369,214 +264,215 @@ export default function TasksScreen() {
   );
 }
 
+/**
+ * One schedule in the list: its rule, its next run (or why there is none), and how its
+ * latest run went. The texts open the detail; the switch and Run act in place.
+ */
+function ScheduleRow({
+  task,
+  isUpdating,
+  isRunning,
+  runLocked,
+  onOpen,
+  onToggle,
+  onRun,
+}: {
+  task: Schedule;
+  isUpdating: boolean;
+  isRunning: boolean;
+  /** A run of some schedule is in flight; only one runs at a time. */
+  runLocked: boolean;
+  onOpen: () => void;
+  onToggle: (isActive: boolean) => void;
+  onRun: () => void;
+  /** Read by ListSection: insets the separator below this row past its icon. */
+  leading?: boolean;
+}) {
+  const [pressed, setPressed] = useState(false);
+  const isActive = task.status === 'active';
+  const isCancelled = task.status === 'cancelled';
+  const hasEnded = isCancelled || task.status === 'completed';
+
+  const runs = `${task.run_count} ${task.run_count === 1 ? 'run' : 'runs'}`;
+  const nextLine =
+    isActive && task.next_run_local
+      ? `Next ${formatLocalDateTime(task.next_run_local)} · ${runs}`
+      : `${STATUS_LABEL[task.status]} · ${runs}`;
+
+  const resultText =
+    task.last_run_status === 'succeeded' ? task.last_run_summary : task.last_run_error;
+  const hasResult = Boolean(task.last_run_summary || task.last_run_error);
+  const resultFailed = task.last_run_status !== 'succeeded';
+  const resultLabel =
+    task.last_run_status === 'failed'
+      ? 'Last run failed'
+      : task.last_run_status === 'skipped'
+        ? 'Last run skipped'
+        : 'Last result';
+  const resultTone =
+    task.last_run_status === 'failed'
+      ? Colors.systemRed
+      : task.last_run_status === 'skipped'
+        ? Colors.systemOrange
+        : Colors.systemGreen;
+
+  return (
+    <Animated.View style={[styles.row, pressed ? styles.rowPressed : styles.rowIdle]}>
+      <Pressable
+        style={styles.rowMain}
+        onPress={onOpen}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
+        unstable_pressDelay={40}
+        pressRetentionOffset={16}
+        accessibilityRole="button"
+        accessibilityHint="Opens the schedule's details and history">
+        <IconTile icon={Clock01Icon} color={isActive ? Colors.tint : Colors.systemGray} />
+        <View style={styles.rowTexts}>
+          <AppText variant="headline" color={isActive ? 'primary' : 'secondary'}>
+            {task.title}
+          </AppText>
+          <AppText variant="subheadline" color="secondary">
+            {formatScheduleRule(task)} · {formatTimezone(task.timezone)}
+          </AppText>
+          <AppText variant="footnote" color="secondary">
+            {nextLine}
+          </AppText>
+          {hasResult ? (
+            <View style={styles.result}>
+              <View style={styles.resultHeader}>
+                <View style={[styles.resultDot, { backgroundColor: resultTone }]} />
+                <AppText
+                  variant="footnote"
+                  weight="600"
+                  color={resultFailed ? resultTone : 'secondary'}
+                  numberOfLines={1}
+                  style={styles.resultLabel}>
+                  {resultLabel}
+                  {task.last_run_at ? (
+                    <AppText variant="footnote" color="secondary">
+                      {` · ${formatRelativeTime(task.last_run_at)}`}
+                    </AppText>
+                  ) : null}
+                </AppText>
+              </View>
+              {resultText ? (
+                <AppText variant="footnote" numberOfLines={3}>
+                  {resultText}
+                </AppText>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      </Pressable>
+
+      <View style={styles.rowControls}>
+        <AppSwitch
+          value={isActive}
+          onValueChange={onToggle}
+          disabled={isUpdating || hasEnded}
+          accessibilityLabel={`${task.title} active`}
+        />
+        <Button
+          title="Run"
+          icon={PlayIcon}
+          variant="tinted"
+          size="small"
+          loading={isRunning}
+          disabled={(runLocked && !isRunning) || isCancelled}
+          onPress={onRun}
+        />
+      </View>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
-  segmentRow: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-  },
-  segment: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    backgroundColor: Colors.surface,
-  },
-  segmentSelected: {
-    backgroundColor: Colors.iconDark,
-  },
-  segmentText: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  segmentTextSelected: {
-    color: Colors.white,
-  },
-  hidden: {
-    display: 'none',
-  },
   container: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.groupedBackground,
+  },
+  top: {
+    paddingHorizontal: ScreenMargin,
+    paddingBottom: 8,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingTop: 4,
+    paddingBottom: 10,
+    paddingLeft: 4,
+  },
+  title: {
+    flex: 1,
+  },
+  // The track's default fill is drawn for white surfaces; on the grouped gray it needs the
+  // stronger fill to read as a control.
+  segments: {
+    backgroundColor: Colors.fill,
   },
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 24,
+    paddingTop: 8,
+    paddingBottom: 32,
   },
-  headerRow: {
-    flexDirection: 'row',
+  loading: {
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
-  },
-  pageTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    letterSpacing: -0.5,
-    flex: 1,
-    paddingRight: 12,
-  },
-  newGoalBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primary,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    gap: 4,
-  },
-  newGoalText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.white,
-  },
-  taskRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    gap: 14,
-  },
-  iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  textContainer: {
-    flex: 1,
-  },
-  taskTitle: {
-    fontSize: 15.5,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    lineHeight: 21,
-    letterSpacing: -0.2,
-  },
-  pausedText: {
-    color: Colors.textMuted,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 5,
-  },
-  scheduleItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  taskSchedule: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-    letterSpacing: -0.1,
-  },
-  metaDot: {
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  executionsText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  latestRunBox: {
-    marginTop: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-  },
-  latestRunErrorBox: {
-    backgroundColor: Colors.errorLight,
-    borderColor: Colors.error,
-  },
-  latestRunLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    marginBottom: 3,
-  },
-  latestRunErrorLabel: {
-    color: Colors.error,
-  },
-  latestRunText: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: Colors.textPrimary,
-    fontWeight: '500',
-  },
-  actionsCol: {
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  runManualBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primarySubtle,
-    borderWidth: 1,
-    borderColor: Colors.primaryBorder,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    gap: 4,
-  },
-  runManualText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  disabledAction: {
-    opacity: 0.7,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.borderLight,
-    marginHorizontal: 20,
-  },
-  stateContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 36,
+    gap: 12,
     paddingVertical: 72,
   },
-  stateText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: Colors.textSecondary,
-    fontWeight: '600',
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingLeft: 16,
+    paddingRight: 14,
+    transitionProperty: 'backgroundColor',
+    transitionTimingFunction: 'ease-out',
   },
-  emptyIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primarySubtle,
-    marginBottom: 14,
+  // Highlight at once on touch down; fade out after release, as ListRow does.
+  rowPressed: {
+    backgroundColor: Colors.cellPressed,
+    transitionDuration: 0,
   },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.iconDark,
+  rowIdle: {
+    backgroundColor: Colors.secondaryGroupedBackground,
+    transitionDuration: 350,
   },
-  emptyText: {
+  rowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    paddingVertical: 12,
+  },
+  rowTexts: {
+    flex: 1,
+    gap: 2,
+  },
+  result: {
     marginTop: 6,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-    color: Colors.textSecondary,
+    gap: 2,
+  },
+  resultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  resultDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  resultLabel: {
+    flexShrink: 1,
+  },
+  rowControls: {
+    alignItems: 'flex-end',
+    gap: 10,
+    paddingVertical: 12,
   },
 });

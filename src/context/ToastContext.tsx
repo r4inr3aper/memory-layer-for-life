@@ -1,19 +1,18 @@
 /**
  * Toast Context & Provider
  *
- * Provides a simple, universal, lightweight toast notification system
- * across iOS, Android, and Web without complex setup.
+ * A short message in a dark capsule under the status bar, as iOS shows "Copied". It slides
+ * down into place and leaves the way it came, about 20% faster than it arrived (the user
+ * has read it). A new message replaces the one showing. Toasts are uninvited, so they
+ * carry no haptic and never take touches.
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Animated,
-  Platform,
-} from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInUp, FadeOutUp } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/colors';
+import { Elevation, Motion, Typography, continuous } from '@/constants/theme';
 
 interface ToastContextType {
   showToast: (message: string, duration?: number) => void;
@@ -32,81 +31,63 @@ export const showToast = (message: string, duration?: number) => {
   }
 };
 
+// Layout-animation builders live at module scope: built once, not on every render.
+const TOAST_ENTER = FadeInUp.duration(Motion.duration.toastIn).easing(Motion.easeOut);
+const TOAST_EXIT = FadeOutUp.duration(Motion.duration.toastOut).easing(Motion.easeOut);
+
+interface Toast {
+  id: number;
+  message: string;
+}
+
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [toastMessage, setToastMessage] = useState<string>('');
-  const [visible, setVisible] = useState<boolean>(false);
-  // Created once and never replaced; state (not refs) so render may read them.
-  const [fadeAnim] = useState(() => new Animated.Value(0));
-  const [translateYAnim] = useState(() => new Animated.Value(-20));
+  const [toast, setToast] = useState<Toast | null>(null);
+  const nextId = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const insets = useSafeAreaInsets();
 
   const triggerToast = useCallback((message: string, duration = 2000) => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
-
-    setToastMessage(message);
-    setVisible(true);
-
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateYAnim, {
-        toValue: 0,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    timeoutRef.current = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateYAnim, {
-          toValue: -15,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setVisible(false);
-      });
-    }, duration);
-  }, [fadeAnim, translateYAnim]);
+    nextId.current += 1;
+    setToast({ id: nextId.current, message });
+    timeoutRef.current = setTimeout(() => setToast(null), duration);
+  }, []);
 
   // Connect global handler
-  React.useEffect(() => {
+  useEffect(() => {
     globalToastHandler = triggerToast;
     return () => {
       globalToastHandler = null;
     };
   }, [triggerToast]);
 
+  useEffect(
+    () => () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    },
+    []
+  );
+
   return (
     <ToastContext.Provider value={{ showToast: triggerToast }}>
       {children}
-      {visible && (
-        <View pointerEvents="none" style={styles.toastWrapper}>
+      <View pointerEvents="none" style={[styles.toastWrapper, { top: insets.top + 8 }]}>
+        {toast ? (
           <Animated.View
-            style={[
-              styles.toastContainer,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: translateYAnim }],
-              },
-            ]}>
-            <View style={styles.indicatorDot} />
-            <Text style={styles.toastText} numberOfLines={2}>
-              {toastMessage}
+            key={toast.id}
+            entering={TOAST_ENTER}
+            exiting={TOAST_EXIT}
+            style={[styles.toastContainer, continuous]}
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert">
+            <Text style={styles.toastText} numberOfLines={3}>
+              {toast.message}
             </Text>
           </Animated.View>
-        </View>
-      )}
+        ) : null}
+      </View>
     </ToastContext.Provider>
   );
 };
@@ -116,48 +97,24 @@ export const useToast = () => useContext(ToastContext);
 const styles = StyleSheet.create({
   toastWrapper: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 56 : 36,
-    left: 0,
-    right: 0,
+    left: 16,
+    right: 16,
     alignItems: 'center',
-    justifyContent: 'center',
     zIndex: 99999,
     elevation: 99999,
   },
   toastContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1E2022',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    maxWidth: '85%',
-    gap: 8,
-    ...Platform.select({
-      ios: {
-        shadowColor: Colors.black,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 10,
-      },
-      android: {
-        elevation: 6,
-      },
-      web: {
-        boxShadow: '0 6px 20px rgba(0, 0, 0, 0.25)',
-      },
-    }),
-  },
-  indicatorDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: '#2563EB',
+    maxWidth: 420,
+    backgroundColor: Colors.hud,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 22,
+    ...Elevation.floating,
   },
   toastText: {
-    fontSize: 13.5,
+    ...Typography.subheadline,
     fontWeight: '600',
     color: Colors.white,
-    letterSpacing: -0.1,
+    textAlign: 'center',
   },
 });

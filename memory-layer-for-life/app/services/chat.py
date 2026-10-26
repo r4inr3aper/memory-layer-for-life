@@ -5,8 +5,8 @@ missing. A user's main thread is created on first use and cannot be deleted; sid
 threads come and go.
 """
 
-import re
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final
@@ -16,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.clock import Clock, utc_now
 from app.db.base import new_uuid
 from app.db.session import transaction
-from app.domain.enums import ChatRole, ProposalStatus, ThreadKind
+from app.domain.conversation import heuristic_title
+from app.domain.enums import ChatRole, MemoryStatus, MemoryType, ProposalStatus, ThreadKind
 from app.domain.errors import (
+    AttachmentUnavailableError,
     ChatTurnInProgressError,
     IntegrationError,
     IntegrationNotConfiguredError,
@@ -26,29 +28,28 @@ from app.domain.errors import (
     RecordNotFoundError,
     ScheduleProposalError,
 )
+from app.domain.memory_policy import display_title
 from app.domain.principal import Principal
 from app.domain.retrieval import any_term_tsquery, lexical_terms, normalize_query
 from app.domain.tool_catalog import find_tool
-from app.integrations.composio import ComposioClient, SERVICE_NAME
+from app.integrations.composio import SERVICE_NAME, ComposioClient
 from app.models.chat_message import ChatMessage
 from app.models.chat_thread import ChatThread
 from app.repositories.chat_repository import ChatRepository
+from app.repositories.memory_repository import MemoryRepository
 from app.schemas.message_metadata import JobApplicationDraft, MessageMetadata, ScheduleProposal
+from app.services.attachments import AppAttachments, references
 from app.services.tool_connections import ToolConnectionService
 
 MAIN_THREAD_TITLE: Final = "Main Chat"
 NEW_SIDE_THREAD_TITLE: Final = "New chat"
-_MAX_TITLE_CHARS: Final = 60
-_WHITESPACE: Final = re.compile(r"\s+")
 
 
 def title_from_text(text: str) -> str:
-    """A thread title from the first message: one line, cut at a word boundary."""
-    line = _WHITESPACE.sub(" ", text).strip()
-    if len(line) <= _MAX_TITLE_CHARS:
-        return line or NEW_SIDE_THREAD_TITLE
-    cut = line[: _MAX_TITLE_CHARS - 1].rsplit(" ", 1)[0] or line[: _MAX_TITLE_CHARS - 1]
-    return f"{cut}…"
+    """A side thread's title from its first message, until the memory pipeline names the
+    conversation (ADR-048): links named for what they are, polite openings dropped, one
+    short line."""
+    return heuristic_title(text) or NEW_SIDE_THREAD_TITLE
 
 
 def turn_running(thread: ChatThread, now: datetime) -> bool:
@@ -81,6 +82,16 @@ async def append_message(
 
 
 @dataclass(frozen=True, slots=True)
+class SavedMemory:
+    """A memory a chat message is evidence for."""
+
+    memory_id: uuid.UUID
+    title: str
+    memory_type: MemoryType
+    status: MemoryStatus
+
+
+@dataclass(frozen=True, slots=True)
 class MessageHit:
     message_id: uuid.UUID
     thread_id: uuid.UUID
@@ -98,11 +109,13 @@ class ChatService:
         *,
         composio: ComposioClient | None = None,
         connections: ToolConnectionService | None = None,
+        attachments: AppAttachments | None = None,
         clock: Clock = utc_now,
     ) -> None:
         self._session_factory = session_factory
         self._composio = composio
         self._connections = connections
+        self._attachments = attachments
         self._clock = clock
 
     async def search_messages(
@@ -133,9 +146,11 @@ class ChatService:
     async def list_threads(
         self, principal: Principal, *, kind: ThreadKind | None, limit: int, offset: int
     ) -> tuple[list[ChatThread], int]:
+        """Threads with the most recent activity first. A side thread nobody has written in
+        yet is left out: it has nothing to show but "New chat"."""
         async with self._session_factory() as session:
             return await ChatRepository(session).list_threads(
-                principal.id, kind=kind, limit=limit, offset=offset
+                principal.id, kind=kind, limit=limit, offset=offset, include_empty_side=False
             )
 
     async def ensure_main_thread(self, principal: Principal) -> ChatThread:
@@ -145,9 +160,17 @@ class ChatService:
             )
 
     async def create_side_thread(self, principal: Principal, *, title: str | None) -> ChatThread:
+        """A new side thread. Without a title, an earlier side thread nobody wrote in is
+        reused, so starting a chat and leaving it never piles up empty "New chat" rows."""
         now = self._clock()
         async with transaction(self._session_factory) as session:
-            return await ChatRepository(session).add_thread(
+            chat = ChatRepository(session)
+            if not title:
+                empty = await chat.empty_side_thread(principal.id)
+                if empty is not None:
+                    empty.updated_at = now
+                    return empty
+            return await chat.add_thread(
                 ChatThread(
                     id=new_uuid(),
                     user_id=principal.id,
@@ -190,6 +213,26 @@ class ChatService:
             await existing_thread(chat, principal, thread_id)
             return await chat.recent_messages(thread_id, limit=limit, offset=offset)
 
+    async def saved_memories(
+        self, principal: Principal, messages: Sequence[ChatMessage]
+    ) -> dict[uuid.UUID, list[SavedMemory]]:
+        """The memories each of the user's messages is evidence for, by message id, so the
+        app can show what was remembered beside the message and undo it (ADR-048)."""
+        ids = {message.id for message in messages if message.role == ChatRole.USER.value}
+        async with self._session_factory() as session:
+            rows = await MemoryRepository(session).saved_from_chat_messages(principal.id, ids)
+        saved: dict[uuid.UUID, list[SavedMemory]] = {}
+        for message_id, memory in rows:
+            saved.setdefault(uuid.UUID(message_id), []).append(
+                SavedMemory(
+                    memory_id=memory.id,
+                    title=display_title(memory.content, memory.metadata_),
+                    memory_type=MemoryType(memory.memory_type),
+                    status=MemoryStatus(memory.status),
+                )
+            )
+        return saved
+
     async def dismiss_proposal(
         self, principal: Principal, thread_id: uuid.UUID, message_id: uuid.UUID
     ) -> ChatMessage:
@@ -219,7 +262,7 @@ class ChatService:
         draft = await self._mark_job_draft_sending(principal, thread_id, message_id)
         try:
             await self._execute_job_draft(principal, draft)
-        except Exception as error:  # noqa: BLE001 - converts unknown failures to user-safe text.
+        except Exception as error:
             message = await self._finish_job_draft(
                 principal,
                 thread_id,
@@ -301,17 +344,23 @@ class ChatService:
             raise IntegrationError(
                 SERVICE_NAME, f"{spec.name} is not connected. Connect it and try again."
             )
+        arguments: dict[str, object] = dict(draft.send_arguments)
+        if references(arguments):
+            # The files the card showed, staged for this send; a deleted one stops it.
+            if self._attachments is None:
+                raise AttachmentUnavailableError("Files cannot be attached right now.")
+            arguments = await self._attachments.stage(
+                principal.id, arguments, toolkit=app, tool_slug=draft.send_tool_slug
+            )
         session_id = await composio.create_session(str(principal.id), app, account_ids)
-        execution = await composio.execute_tool(
-            session_id, draft.send_tool_slug, draft.send_arguments
-        )
+        execution = await composio.execute_tool(session_id, draft.send_tool_slug, arguments)
         if not execution.successful:
             raise IntegrationError(SERVICE_NAME, execution.error or "could not send the email.")
 
     def _job_draft_error_message(self, error: Exception) -> str:
         if isinstance(error, IntegrationError):
             return error.message
-        if isinstance(error, JobApplicationDraftError):
+        if isinstance(error, JobApplicationDraftError | AttachmentUnavailableError):
             return error.message
         return "Could not send the draft right now. Please try again."
 
@@ -349,7 +398,5 @@ def sendable_job_application_draft(metadata: MessageMetadata) -> JobApplicationD
     if draft is None:
         raise JobApplicationDraftError("This message does not include a job application draft.")
     if draft.status not in {"pending", "failed"}:
-        raise JobApplicationDraftError(
-            f"This job application draft was already {draft.status}."
-        )
+        raise JobApplicationDraftError(f"This job application draft was already {draft.status}.")
     return draft

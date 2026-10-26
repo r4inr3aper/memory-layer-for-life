@@ -383,3 +383,29 @@ class InvalidAttachmentError(DomainError):
     """An attached file is of an unsupported type, too large, or not valid base64."""
 
     code = "INVALID_ATTACHMENT"
+
+
+class InvalidDocumentError(DomainError):
+    """An uploaded document is of an unsupported type, too large, or holds no text that
+    can be read."""
+
+    code = "INVALID_DOCUMENT"
+
+
+class DocumentStorageFullError(DomainError):
+    """Keeping another file would take the user past their storage allowance."""
+
+    code = "DOCUMENT_STORAGE_FULL"
+
+
+class InvalidLinkError(DomainError):
+    """A link the user saves is not a web address, or the change is empty."""
+
+    code = "INVALID_LINK"
+
+
+class AttachmentUnavailableError(DomainError):
+    """A file the assistant was asked to attach is missing, or only its text was kept, so
+    the action that needed it does not run (ADR-050)."""
+
+    code = "ATTACHMENT_UNAVAILABLE"

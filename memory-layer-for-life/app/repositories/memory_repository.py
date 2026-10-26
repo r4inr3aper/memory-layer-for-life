@@ -3,18 +3,31 @@ from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, delete, func, or_, select, update
+from sqlalchemy import ColumnElement, Float, cast, delete, false, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from app.db.base import new_uuid
-from app.domain.enums import MemoryEventAction, MemoryStatus, MemoryType, RelationType
+from app.domain.enums import (
+    MemoryEntityRelation,
+    MemoryEventAction,
+    MemoryOrigin,
+    MemoryStatus,
+    MemoryType,
+    MessageSource,
+    RelationType,
+    SourceRole,
+)
 from app.models.extraction_result import ExtractionResult
 from app.models.memory import Memory
 from app.models.memory_entity import MemoryEntity
 from app.models.memory_event import MemoryEvent
 from app.models.memory_relation import MemoryRelation
 from app.models.memory_source import MemorySource
+from app.models.raw_message import RawMessage
 from app.repositories.base import BaseRepository
+
+_LIVE = sorted(status.value for status in (MemoryStatus.PROPOSED, MemoryStatus.ACTIVE))
 
 
 class MemoryRepository(BaseRepository):
@@ -142,6 +155,108 @@ class MemoryRepository(BaseRepository):
     async def add_entity_links(self, links: Sequence[MemoryEntity]) -> None:
         self._session.add_all(links)
         await self._session.flush()
+
+    async def add_entity_links_if_absent(
+        self, memory_id: uuid.UUID, entity_ids: Collection[uuid.UUID], *, now: datetime
+    ) -> None:
+        """Link a memory to entities it mentions, skipping links it already has."""
+        if not entity_ids:
+            return
+        await self._session.execute(
+            insert(MemoryEntity)
+            .values(
+                [
+                    {
+                        "memory_id": memory_id,
+                        "entity_id": entity_id,
+                        "relationship_type": MemoryEntityRelation.MENTIONS.value,
+                        "created_at": now,
+                    }
+                    for entity_id in entity_ids
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=["memory_id", "entity_id", "relationship_type"])
+        )
+
+    # --- Reconciliation (ADR-048) --------------------------------------------------
+
+    async def same_memory_candidates(
+        self,
+        owner_id: uuid.UUID,
+        *,
+        memory_type: MemoryType,
+        normalized_content: str,
+        links: Collection[str],
+        min_similarity: float,
+        limit: int = 5,
+    ) -> list[tuple[Memory, float, bool]]:
+        """The owner's live, open memories of one kind that may say what a new one says:
+        text at least ``min_similarity`` alike (pg_trgm), or naming one of ``links``. Most
+        alike first, each with its similarity and whether it names one of the links."""
+        similarity = cast(
+            func.coalesce(func.similarity(Memory.normalized_content, normalized_content), 0.0),
+            Float,
+        )
+        shares_link: ColumnElement[bool] = (
+            or_(*(Memory.content.icontains(link, autoescape=True) for link in sorted(links)))
+            if links
+            else false()
+        )
+        rows = await self._session.execute(
+            select(Memory, similarity, shares_link)
+            .where(
+                Memory.owner_id == owner_id,
+                Memory.memory_type == memory_type.value,
+                Memory.status.in_(_LIVE),
+                Memory.closed_at.is_(None),
+                or_(similarity >= min_similarity, shares_link),
+            )
+            .order_by(similarity.desc(), Memory.created_at.desc())
+            .limit(limit)
+        )
+        return [(row[0], float(row[1]), bool(row[2])) for row in rows]
+
+    async def saved_from_chat_messages(
+        self, owner_id: uuid.UUID, message_ids: Collection[uuid.UUID]
+    ) -> list[tuple[str, Memory]]:
+        """The owner's live memories that quote these chat messages, as (chat message id,
+        memory), oldest memory first."""
+        if not message_ids:
+            return []
+        rows = await self._session.execute(
+            select(RawMessage.source_message_id, Memory)
+            .join(MemorySource, MemorySource.raw_message_id == RawMessage.id)
+            .join(Memory, Memory.id == MemorySource.memory_id)
+            .where(
+                RawMessage.owner_id == owner_id,
+                RawMessage.source == MessageSource.APP_CHAT.value,
+                RawMessage.source_message_id.in_(sorted(str(item) for item in message_ids)),
+                MemorySource.source_role == SourceRole.SUPPORTING.value,
+                Memory.owner_id == owner_id,
+                Memory.status.in_(_LIVE),
+            )
+            .order_by(Memory.created_at, Memory.id)
+        )
+        return [(str(row[0]), row[1]) for row in rows]
+
+    async def saved_by_assistant_since(
+        self, owner_id: uuid.UUID, since: datetime, *, limit: int = 10
+    ) -> list[Memory]:
+        """Memories the assistant wrote for the owner since ``since`` (reminders), oldest
+        first. Sensitive ones are left out: this goes to a model."""
+        rows = await self._session.scalars(
+            select(Memory)
+            .where(
+                Memory.owner_id == owner_id,
+                Memory.created_by == MemoryOrigin.ASSISTANT.value,
+                Memory.created_at >= since,
+                Memory.status.in_(_LIVE),
+                Memory.metadata_["sensitivity"].astext.is_distinct_from("sensitive"),
+            )
+            .order_by(Memory.created_at, Memory.id)
+            .limit(limit)
+        )
+        return list(rows)
 
     async def copy_provenance(
         self, from_memory_id: uuid.UUID, to_memory_id: uuid.UUID, *, now: datetime

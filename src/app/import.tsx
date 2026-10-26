@@ -9,23 +9,33 @@
  *    Start queues them; memories appear as the backend works through them.
  *
  * Earlier imports are listed with their progress, refreshed while one is running.
+ *
+ * A pushed screen with a large title. The choices are inset-grouped lists with
+ * checkmarks, as iOS pickers are; Import is the one filled button.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import * as DocumentPicker from 'expo-document-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScreenHeader } from '@/components/common/ScreenHeader';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FileImportIcon, WhatsappIcon } from '@hugeicons/core-free-icons';
+import {
+  AppSwitch,
+  AppText,
+  Button,
+  Card,
+  EmptyState,
+  IconTile,
+  LargeTitle,
+  ListRow,
+  ListSection,
+  ScreenHeader,
+  useScrollY,
+} from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { ScreenMargin } from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { useRequireSession } from '@/hooks/useRequireSession';
 import { readBase64 } from '@/lib/attachmentPicker';
@@ -34,6 +44,7 @@ import { listImports, previewImport, startImport } from '@/lib/api/sources';
 import type { ChatImport } from '@/lib/api/types';
 import { confirmAsync } from '@/lib/dialogs';
 import { formatRelativeTime } from '@/lib/formatTime';
+import { haptic } from '@/lib/haptics';
 import {
   DEFAULT_IMPORT_CONVERSATIONS,
   importEstimate,
@@ -49,7 +60,11 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export default function ImportScreen() {
   const hasSession = useRequireSession();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrollY();
   const [imports, setImports] = useState<ChatImport[]>([]);
+  // Whether the list has loaded once, so "No imports yet" never flashes before it does.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [preview, setPreview] = useState<ChatImport | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [since, setSince] = useState<string | null>(null);
@@ -59,7 +74,10 @@ export default function ImportScreen() {
 
   const load = useCallback((signal?: AbortSignal) => {
     return listImports(signal)
-      .then(setImports)
+      .then((list) => {
+        setImports(list);
+        setHasLoaded(true);
+      })
       .catch((error) => {
         if (!isAbortError(error, signal)) {
           showToast(getErrorMessage(error, "Couldn't load your imports"));
@@ -130,9 +148,11 @@ export default function ImportScreen() {
         max_conversations: DEFAULT_IMPORT_CONVERSATIONS,
       });
       setPreview(null);
+      haptic.success();
       showToast('Importing. This takes a few minutes.');
       await load();
     } catch (error) {
+      haptic.error();
       showToast(getErrorMessage(error, "Couldn't start the import"), 4000);
     } finally {
       setIsStarting(false);
@@ -144,129 +164,145 @@ export default function ImportScreen() {
   }
 
   const planned = preview ? plannedConversations(preview, me, onlyMine) : 0;
+  const queued = imports.filter((item) => item.status === 'queued');
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <ScreenHeader title="Import a chat" fallbackHref="/memories" />
-      <ScrollView contentContainerStyle={styles.content}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScreenHeader title="Import a chat" fallbackHref="/memories" scrollY={scrollY} />
+      <Animated.ScrollView
+        style={styles.flex}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}>
+        <LargeTitle title="Import a chat" />
+
         {preview ? (
-          <View style={styles.card}>
-            <Text style={styles.title}>{preview.file_name}</Text>
-            <Text style={styles.meta}>
-              {preview.message_count.toLocaleString()} messages
-              {preview.first_message_at
-                ? ` since ${formatRelativeTime(preview.first_message_at)}`
-                : ''}
-            </Text>
-
-            <Text style={styles.label}>Which one is you?</Text>
-            {preview.participants.map((participant) => (
-              <TouchableOpacity
-                key={participant.name}
-                style={[styles.option, me === participant.name && styles.optionSelected]}
-                onPress={() => setMe(participant.name)}
-                activeOpacity={0.75}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: me === participant.name }}>
-                <Text style={styles.optionText}>{participant.name}</Text>
-                <Text style={styles.meta}>{participant.messages.toLocaleString()} messages</Text>
-              </TouchableOpacity>
-            ))}
-
-            <Text style={styles.label}>From when</Text>
-            <View style={styles.chipRow}>
-              {sinceChoices(isoDate(new Date())).map((choice) => (
-                <TouchableOpacity
-                  key={choice.label}
-                  style={[styles.chip, since === choice.value && styles.chipSelected]}
-                  onPress={() => setSince(choice.value)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: since === choice.value }}>
-                  <Text
-                    style={[styles.chipText, since === choice.value && styles.chipTextSelected]}>
-                    {choice.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <View style={styles.switchRow}>
-              <View style={styles.flex}>
-                <Text style={styles.optionText}>Only conversations I was in</Text>
-                <Text style={styles.meta}>Leaves out talk between the others.</Text>
-              </View>
-              <Switch
-                value={onlyMine}
-                onValueChange={setOnlyMine}
-                trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                thumbColor={onlyMine ? Colors.primary : Colors.surfaceMuted}
-                accessibilityLabel="Only conversations I was in"
+          <>
+            <ListSection>
+              <ListRow
+                icon={WhatsappIcon}
+                iconColor={Colors.systemGreen}
+                title={preview.file_name}
+                subtitle={`${preview.message_count.toLocaleString()} messages${
+                  preview.first_message_at
+                    ? ` since ${formatRelativeTime(preview.first_message_at)}`
+                    : ''
+                }`}
               />
-            </View>
+            </ListSection>
 
-            {me ? (
-              <Text style={styles.estimate}>
-                {importEstimate(preview, planned)}. The most recent conversations come first.
-              </Text>
-            ) : null}
+            <ListSection header="Which one is you?">
+              {preview.participants.map((participant) => {
+                const selected = me === participant.name;
+                return (
+                  <ListRow
+                    key={participant.name}
+                    title={participant.name}
+                    subtitle={`${participant.messages.toLocaleString()} messages`}
+                    accessory={selected ? 'check' : 'none'}
+                    onPress={() => setMe(participant.name)}
+                    accessibilityLabel={selected ? `${participant.name}, selected` : participant.name}
+                  />
+                );
+              })}
+            </ListSection>
+
+            <ListSection header="From when">
+              {sinceChoices(isoDate(new Date())).map((choice) => {
+                const selected = since === choice.value;
+                return (
+                  <ListRow
+                    key={choice.label}
+                    title={choice.label}
+                    accessory={selected ? 'check' : 'none'}
+                    onPress={() => setSince(choice.value)}
+                    accessibilityLabel={selected ? `${choice.label}, selected` : choice.label}
+                  />
+                );
+              })}
+            </ListSection>
+
+            <ListSection
+              footer={
+                me
+                  ? `${importEstimate(preview, planned)}. The most recent conversations come first.`
+                  : undefined
+              }>
+              <ListRow
+                title="Only conversations I was in"
+                subtitle="Leaves out talk between the others."
+                accessory={
+                  <AppSwitch
+                    value={onlyMine}
+                    onValueChange={setOnlyMine}
+                    accessibilityLabel="Only conversations I was in"
+                  />
+                }
+              />
+            </ListSection>
 
             <View style={styles.actions}>
-              <TouchableOpacity style={styles.secondary} onPress={() => setPreview(null)}>
-                <Text style={styles.secondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.primary, (!me || isStarting) && styles.disabled]}
+              <Button
+                title="Cancel"
+                variant="gray"
+                size="large"
+                block
+                onPress={() => setPreview(null)}
+                containerStyle={styles.flex}
+              />
+              <Button
+                title="Import"
+                variant="filled"
+                size="large"
+                block
                 onPress={start}
-                disabled={!me || isStarting}
-                accessibilityRole="button">
-                {isStarting ? (
-                  <ActivityIndicator color={Colors.white} />
-                ) : (
-                  <Text style={styles.primaryText}>Import</Text>
-                )}
-              </TouchableOpacity>
+                loading={isStarting}
+                disabled={!me}
+                containerStyle={styles.flex}
+              />
             </View>
-          </View>
+          </>
         ) : (
-          <View style={styles.card}>
-            <Text style={styles.title}>Bring a WhatsApp chat in</Text>
-            <Text style={styles.body}>
+          <Card style={styles.intro}>
+            <IconTile icon={WhatsappIcon} color={Colors.systemGreen} size={44} />
+            <AppText variant="title3">Bring a WhatsApp chat in</AppText>
+            <AppText variant="subheadline" color="secondary">
               In WhatsApp, open the chat, tap More &gt; Export chat &gt; Without media, and save the
               file. Then pick it here. You&apos;ll see who&apos;s in it and what it costs before
               anything is imported.
-            </Text>
-            <TouchableOpacity
-              style={[styles.primary, isReading && styles.disabled]}
+            </AppText>
+            <Button
+              title="Choose the export"
+              variant="filled"
+              size="large"
+              block
               onPress={pickFile}
-              disabled={isReading}
-              accessibilityRole="button">
-              {isReading ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <Text style={styles.primaryText}>Choose the export</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+              loading={isReading}
+              containerStyle={styles.introButton}
+            />
+          </Card>
         )}
 
-        {imports.filter((item) => item.status === 'queued').length ? (
-          <Text style={styles.sectionTitle}>Your imports</Text>
+        {queued.length ? (
+          <ListSection header="Your imports">
+            {queued.map((item) => (
+              <ListRow
+                key={item.id}
+                title={item.file_name}
+                subtitle={`${importProgressText(item)} · ${formatRelativeTime(item.created_at)}`}
+                onPress={() => router.push({ pathname: '/memories', params: { tab: 'review' } })}
+              />
+            ))}
+          </ListSection>
+        ) : hasLoaded && !preview ? (
+          <EmptyState
+            compact
+            icon={FileImportIcon}
+            title="No imports yet"
+            message="Chats you import show here while their memories are made."
+          />
         ) : null}
-        {imports
-          .filter((item) => item.status === 'queued')
-          .map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.importRow}
-              onPress={() => router.push({ pathname: '/memories', params: { tab: 'review' } })}
-              activeOpacity={0.75}>
-              <Text style={styles.optionText}>{item.file_name}</Text>
-              <Text style={styles.meta}>
-                {importProgressText(item)} · {formatRelativeTime(item.created_at)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -274,146 +310,23 @@ export default function ImportScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.groupedBackground,
   },
   flex: {
     flex: 1,
   },
-  content: {
-    padding: 16,
-    paddingBottom: 40,
-    gap: 12,
+  intro: {
+    marginHorizontal: ScreenMargin,
+    marginBottom: 28,
+    gap: 10,
   },
-  card: {
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 8,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.iconDark,
-  },
-  body: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.textSecondary,
-    marginBottom: 6,
-  },
-  meta: {
-    fontSize: 12.5,
-    color: Colors.textSecondary,
-  },
-  label: {
-    marginTop: 10,
-    fontSize: 11,
-    fontWeight: '600',
-    color: Colors.iconMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  option: {
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  optionSelected: {
-    borderColor: Colors.primaryBorder,
-    backgroundColor: Colors.primarySubtle,
-  },
-  optionText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  chipSelected: {
-    borderColor: Colors.primaryBorder,
-    backgroundColor: Colors.primarySubtle,
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  chipTextSelected: {
-    color: Colors.primary,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 10,
-  },
-  estimate: {
-    marginTop: 8,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: Colors.surface,
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: Colors.iconDark,
+  introButton: {
+    marginTop: 6,
   },
   actions: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-  },
-  primary: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.white,
-  },
-  secondary: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  sectionTitle: {
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.iconMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  importRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-    gap: 2,
+    gap: 12,
+    marginHorizontal: ScreenMargin,
+    marginBottom: 28,
   },
 });

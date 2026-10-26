@@ -15,6 +15,7 @@ from typing import Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.domain.arithmetic import evaluate_arithmetic
+from app.domain.enums import MessageSource
 from app.domain.errors import InvalidExtractionOutputError
 from app.domain.normalization import normalize_message_text
 from app.integrations.extraction.base import (
@@ -57,9 +58,14 @@ def build_extraction_request(
 
     Message text is normalized into a working copy. The stored content is untouched.
     Timestamps are converted to the user's timezone, because expressions such as
-    "tomorrow" only make sense against local time.
+    "tomorrow" only make sense against local time. A unit of chat messages is a
+    conversation with the assistant: its context (the assistant's messages, what the
+    assistant saved) comes from the evidence's own metadata, so a replay sees the same.
     """
     timezone = ZoneInfo(timezone_name)
+    conversation = bool(messages) and all(
+        message.source == MessageSource.APP_CHAT.value for message in messages
+    )
     return ExtractionRequest(
         messages=tuple(
             ExtractionMessage(
@@ -70,12 +76,29 @@ def build_extraction_request(
                     if message.source_created_at is not None
                     else None
                 ),
+                assistant_before=(
+                    _metadata_text(message, ASSISTANT_BEFORE_KEY) if conversation else None
+                ),
             )
             for index, message in enumerate(messages)
         ),
         timezone_name=timezone_name,
         call_context=call_context,
+        conversation=conversation,
+        already_saved=_already_saved(messages) if conversation else (),
     )
+
+
+def _metadata_text(message: RawMessage, key: str) -> str | None:
+    value = (message.metadata_ or {}).get(key)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _already_saved(messages: Sequence[RawMessage]) -> tuple[str, ...]:
+    value = (messages[0].metadata_ or {}).get(ALREADY_SAVED_KEY)
+    if not isinstance(value, list):
+        return ()
+    return tuple(item for item in value if isinstance(item, str) and item.strip())
 
 
 def validate_grounding(output: ExtractionOutput, *, message_count: int) -> None:
@@ -144,6 +167,10 @@ def finalize_extraction(output: ExtractionOutput, *, message_count: int) -> Fina
 
 # Metadata key of a unit's own timezone, set by sources that know it (app chats).
 UNIT_TIMEZONE_KEY: Final = "timezone"
+# Metadata keys of a chat message's context (ADR-048): the assistant message it answered,
+# and, on a unit's first message, what the assistant saved during that conversation.
+ASSISTANT_BEFORE_KEY: Final = "assistant_before"
+ALREADY_SAVED_KEY: Final = "saved_by_assistant"
 
 
 def unit_timezone(messages: Sequence[RawMessage]) -> str | None:

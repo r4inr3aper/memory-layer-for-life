@@ -4,7 +4,12 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from app.api.dependencies import ChatServiceDep, LifeStateServiceDep, PrincipalDep
+from app.api.dependencies import (
+    ChatServiceDep,
+    LifeStateServiceDep,
+    PrincipalDep,
+    TodayServiceDep,
+)
 from app.api.v1.mappers import to_memory_response
 from app.core.exceptions import ErrorResponse
 from app.domain.enums import LifeBucket
@@ -12,9 +17,12 @@ from app.schemas.life import (
     BriefItemResponse,
     BriefResponse,
     LifeOverviewResponse,
+    MeetingResponse,
     MessageHitResponse,
     MessageSearchRequest,
     MessageSearchResponse,
+    PromiseResponse,
+    TodayResponse,
 )
 
 router = APIRouter()
@@ -33,9 +41,9 @@ _AUTH: Responses = {
     responses=_AUTH,
     summary="Show what is open in my life",
     description=(
-        "Open tasks, plans, commitments, open loops, and intentions by when they are due "
-        "(in the user's timezone), goals and projects, items gone quiet, pending reminders, "
-        "and what was done in the last seven days."
+        "Open tasks, plans, commitments, and intentions by when they are due (in the user's "
+        "timezone), goals and projects, open questions, imported items to look at once, "
+        "items gone quiet, pending reminders, and what was done in the last seven days."
     ),
 )
 async def get_life(principal: PrincipalDep, life: LifeStateServiceDep) -> LifeOverviewResponse:
@@ -56,6 +64,8 @@ async def get_life(principal: PrincipalDep, life: LifeStateServiceDep) -> LifeOv
         stale_ids=sorted(overview.stale_ids, key=str),
         reminders=[to_memory_response(view) for view in overview.reminders],
         recently_done=[to_memory_response(view) for view in overview.recently_done],
+        questions=[to_memory_response(view) for view in overview.questions],
+        triage=[to_memory_response(view) for view in overview.triage],
     )
 
 
@@ -96,4 +106,40 @@ async def search_messages(
     return MessageSearchResponse(
         query=payload.query,
         items=[MessageHitResponse.model_validate(hit) for hit in hits],
+    )
+
+
+@router.get(
+    "/today",
+    response_model=TodayResponse,
+    responses=_AUTH,
+    summary="Show today's cards",
+    description=(
+        "What the Feed puts first, each something to act on: next actions, promises to "
+        "people, today's and tomorrow's calendar events with what is known about the people "
+        "in them, one idea or goal to pick up again, and memories to confirm. No model is "
+        "used."
+    ),
+)
+async def get_today(principal: PrincipalDep, today: TodayServiceDep) -> TodayResponse:
+    view = await today.today(principal)
+    return TodayResponse(
+        today=view.today,
+        timezone=view.timezone,
+        next_actions=[to_memory_response(item) for item in view.next_actions],
+        promises=[
+            PromiseResponse(memory=to_memory_response(promise.memory), people=list(promise.people))
+            for promise in view.promises
+        ],
+        meetings=[
+            MeetingResponse(
+                event=to_memory_response(meeting.event),
+                people=list(meeting.people),
+                related=[to_memory_response(item) for item in meeting.related],
+            )
+            for meeting in view.meetings
+        ],
+        resurface=to_memory_response(view.resurface) if view.resurface is not None else None,
+        to_confirm=[to_memory_response(item) for item in view.to_confirm],
+        review_count=view.review_count,
     )

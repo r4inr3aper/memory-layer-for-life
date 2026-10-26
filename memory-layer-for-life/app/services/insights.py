@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.clock import Clock, utc_now
 from app.db.session import transaction
-from app.domain.enums import CloseReason, InsightKind, MemoryType
+from app.domain.enums import CloseReason, InsightKind, MemoryStatus, MemoryType
 from app.domain.insights import (
     Closure,
     Insight,
@@ -66,9 +66,15 @@ class InsightService:
             mentions = await data.mentions(principal.id, since=now - MENTION_HISTORY)
             closures = await data.closures(principal.id, since=now - CLOSURE_HISTORY)
             hidden = await data.hidden_keys(principal.id)
-            open_items = await LifeRepository(session).open_items(
-                principal.id, include_sensitive=True
-            )
+            life = LifeRepository(session)
+            open_items = await life.open_items(principal.id, include_sensitive=True)
+            # Imported items nobody looked at are not plans the user failed to keep.
+            imported = await life.imported([item.id for item in open_items])
+            open_items = [
+                item
+                for item in open_items
+                if not (item.id in imported and item.status == MemoryStatus.PROPOSED.value)
+            ]
         return compute_insights(
             InsightInputs(
                 today=today,

@@ -1,36 +1,41 @@
 /**
  * Tools & Connections Screen ('/tools')
  *
- * Minimal list view for tool connections under Settings:
- * - Uncategorized flat list ("Show All")
- * - Displays Tool Icon, Name, and Connect/Disconnect/Manage actions
+ * A pushed screen with a large title, listing the apps as inset-grouped rows:
+ * - Connected apps first, each with its account; tapping one opens the Manage sheet
+ * - The rest after, each with a small Connect button
  * - Composio OAuth linking through the backend API, with polling and AppState refresh
  */
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
   AppState,
   AppStateStatus,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { useRouter } from 'expo-router';
-import { HugeiconsIcon } from '@hugeicons/react-native';
-import { ArrowLeft01Icon, RefreshIcon } from '@hugeicons/core-free-icons';
+import { Plug01Icon, RefreshIcon } from '@hugeicons/core-free-icons';
+import {
+  AppText,
+  EmptyState,
+  IconButton,
+  LargeTitle,
+  ListSection,
+  ScreenHeader,
+  useScrollY,
+} from '@/components/ui';
 import { Colors } from '@/constants/colors';
 import { getErrorMessage } from '@/lib/api/client';
 import { connectTool, disconnectTool, getToolConnection, listTools } from '@/lib/api/tools';
 import { confirmAsync } from '@/lib/dialogs';
 import { Tool } from '@/types/tools';
-import { ToolCard } from '@/components/tools/ToolCard';
+import { AppGlyph, ToolCard } from '@/components/tools/ToolCard';
 import { ManageToolModal } from '@/components/tools/ManageToolModal';
 import { showToast } from '@/context/ToastContext';
 
@@ -40,7 +45,8 @@ WebBrowser.maybeCompleteAuthSession();
 const PENDING_POLL_MS = 3500;
 
 export default function ToolsConnectionsScreen() {
-  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { scrollY, onScroll } = useScrollY();
 
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -248,88 +254,97 @@ export default function ToolsConnectionsScreen() {
     setSelectedManageTool(targetTool);
   };
 
+  const connectedTools = tools.filter((tool) => tool.status === 'connected');
+  const otherTools = tools.filter((tool) => tool.status !== 'connected');
+
+  // The glyph is passed in, rather than built inside ToolCard, so the section sees it and
+  // insets its separators past it, as iOS does.
+  const renderTool = (tool: Tool) => (
+    <ToolCard
+      key={tool.slug}
+      tool={tool}
+      leading={<AppGlyph tool={tool} />}
+      isLoading={!!busySlugs[tool.slug]}
+      onConnect={handleConnect}
+      onDisconnect={handleDisconnect}
+      onManage={handleManage}
+    />
+  );
+
   return (
     // react-native-safe-area-context, not React Native's SafeAreaView: that one is iOS-only,
     // so on Android the status bar drew over this screen.
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <HugeiconsIcon
-              icon={ArrowLeft01Icon}
-              size={22}
-              color={Colors.iconDark}
-              strokeWidth={2}
-            />
-          </TouchableOpacity>
-
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Tools & Connections</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.refreshButton}
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScreenHeader
+        title="Tools & Connections"
+        scrollY={scrollY}
+        right={
+          <IconButton
+            icon={RefreshIcon}
             onPress={() => loadTools(true)}
-            activeOpacity={0.7}>
-            <HugeiconsIcon icon={RefreshIcon} size={20} color={Colors.iconDark} strokeWidth={2} />
-          </TouchableOpacity>
-        </View>
+            accessibilityLabel="Refresh"
+          />
+        }
+      />
 
-        {/* Content Body */}
+      <Animated.ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        refreshControl={
+          loading ? undefined : (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadTools(true)}
+              tintColor={Colors.secondaryLabel}
+            />
+          )
+        }>
+        <LargeTitle title="Tools & Connections" />
+
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={Colors.primary} />
-            <Text style={styles.loadingText}>Fetching tool connections...</Text>
+            <ActivityIndicator color={Colors.secondaryLabel} />
+            <AppText variant="subheadline" color="secondary">
+              Fetching tool connections...
+            </AppText>
           </View>
+        ) : tools.length === 0 ? (
+          <EmptyState
+            icon={Plug01Icon}
+            title="No apps to show"
+            message="Pull down to refresh, or try again in a moment."
+            actionTitle="Try again"
+            onAction={() => loadTools(true)}
+          />
         ) : (
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={() => loadTools(true)}
-                tintColor={Colors.primary}
-              />
-            }>
-            {/* Flat List Container */}
-            <View style={styles.listCard}>
-              {tools.map((tool, index) => (
-                <React.Fragment key={tool.slug}>
-                  {index > 0 && <View style={styles.rowDivider} />}
-                  <ToolCard
-                    tool={tool}
-                    isLoading={!!busySlugs[tool.slug]}
-                    onConnect={handleConnect}
-                    onDisconnect={handleDisconnect}
-                    onManage={handleManage}
-                  />
-                </React.Fragment>
-              ))}
-            </View>
-
-            <View style={{ height: 40 }} />
-          </ScrollView>
+          <>
+            {connectedTools.length > 0 ? (
+              <ListSection header="Connected">{connectedTools.map(renderTool)}</ListSection>
+            ) : null}
+            {otherTools.length > 0 ? (
+              <ListSection
+                header={connectedTools.length > 0 ? 'More apps' : 'Apps'}
+                footer="You sign in to each app in your browser to allow access, and you can disconnect it here at any time.">
+                {otherTools.map(renderTool)}
+              </ListSection>
+            ) : null}
+          </>
         )}
+      </Animated.ScrollView>
 
-        {/* Manage Tool Connection Modal */}
-        <ManageToolModal
-          visible={!!selectedManageTool}
-          tool={selectedManageTool}
-          isLoading={selectedManageTool ? !!busySlugs[selectedManageTool.slug] : false}
-          onClose={() => setSelectedManageTool(null)}
-          onReconnect={handleReconnect}
-          onDisconnect={(toolToDisconnect) => {
-            handleDisconnect(toolToDisconnect);
-          }}
-        />
-      </View>
+      {/* Manage Tool Connection Sheet */}
+      <ManageToolModal
+        visible={!!selectedManageTool}
+        tool={selectedManageTool}
+        isLoading={selectedManageTool ? !!busySlugs[selectedManageTool.slug] : false}
+        onClose={() => setSelectedManageTool(null)}
+        onReconnect={handleReconnect}
+        onDisconnect={(toolToDisconnect) => {
+          handleDisconnect(toolToDisconnect);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -337,75 +352,15 @@ export default function ToolsConnectionsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: Colors.white,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.surfaceMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitleContainer: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.text,
-    letterSpacing: -0.4,
-  },
-  refreshButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.surfaceMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: Colors.textMuted,
-    marginTop: 12,
-    fontWeight: '500',
+    backgroundColor: Colors.groupedBackground,
   },
   scrollView: {
     flex: 1,
   },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  listCard: {
-    backgroundColor: Colors.white,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
-  },
-  rowDivider: {
-    height: 1,
-    backgroundColor: Colors.borderLight,
-    marginLeft: 68,
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 64,
   },
 });

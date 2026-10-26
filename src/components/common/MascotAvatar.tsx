@@ -36,8 +36,7 @@ export const MascotAvatar: React.FC<MascotAvatarProps> = ({
             width: size,
             height: size,
             borderRadius: size / 2,
-            backgroundColor: `${color}18`,
-            borderColor: color,
+            backgroundColor: `${color}22`,
           },
           style as any,
         ]}>
@@ -72,7 +71,6 @@ const styles = StyleSheet.create({
   emojiAvatar: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
   },
   emojiText: {
     textAlign: 'center',

@@ -18,6 +18,8 @@ dependencies = [
     # Verifies Supabase access tokens (ES256/RS256) against the project's published keys.
     "pyjwt[crypto]>=2.9.0,<3.0.0",
     "tzdata>=2024.1",
+    # Reads the text layer of uploaded PDFs without a model (ADR-049).
+    "pypdf>=6.0.0,<7.0.0",
 ]
 
 [project.optional-dependencies]

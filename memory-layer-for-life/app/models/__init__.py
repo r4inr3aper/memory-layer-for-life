@@ -5,6 +5,9 @@ from app.models.chat_import import ChatImport
 from app.models.chat_message import ChatMessage
 from app.models.chat_thread import ChatThread
 from app.models.daily_usage import DailyUsage
+from app.models.document import Document
+from app.models.document_chunk import DocumentChunk
+from app.models.document_file import DocumentFile
 from app.models.entity import Entity
 from app.models.entity_mention import EntityMention
 from app.models.evaluation import EvaluationCaseResult, EvaluationRun
@@ -24,6 +27,7 @@ from app.models.processing_run_event import ProcessingRunEvent
 from app.models.processing_run_message import ProcessingRunMessage
 from app.models.push_token import PushToken
 from app.models.raw_message import RawMessage
+from app.models.saved_link import SavedLink
 from app.models.scheduled_task import ScheduledTask
 from app.models.scheduled_task_run import ScheduledTaskRun
 from app.models.synced_item import SyncedItem
@@ -35,6 +39,9 @@ __all__ = [
     "ChatMessage",
     "ChatThread",
     "DailyUsage",
+    "Document",
+    "DocumentChunk",
+    "DocumentFile",
     "Entity",
     "EntityMention",
     "EvaluationCaseResult",
@@ -55,6 +62,7 @@ __all__ = [
     "ProcessingRunMessage",
     "PushToken",
     "RawMessage",
+    "SavedLink",
     "ScheduledTask",
     "ScheduledTaskRun",
     "SyncedItem",

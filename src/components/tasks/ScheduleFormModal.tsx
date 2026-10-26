@@ -11,30 +11,20 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Cancel01Icon, MinusSignIcon, PlusSignIcon } from '@hugeicons/core-free-icons';
+import { MinusSignIcon, PlusSignIcon } from '@hugeicons/core-free-icons';
+import { AppText, BottomSheet, ListRow, ListSection } from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { Hairline, Radius, continuous } from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { getErrorMessage, isAbortError } from '@/lib/api/client';
 import { createSchedule, updateSchedule } from '@/lib/api/schedules';
 import { listTools } from '@/lib/api/tools';
 import type { Schedule, ScheduleDelivery, Weekday } from '@/lib/api/types';
 import { deviceTimezone, formatTimezone, ordinal } from '@/lib/formatSchedule';
+import { haptic } from '@/lib/haptics';
 import {
   availableDeliveries,
   DELIVERY_OPTIONS,
@@ -54,7 +44,7 @@ import {
   type ScheduleFormField,
   type ScheduleFormValues,
 } from '@/lib/scheduleForm';
-import { DateField, TimeField } from './DateTimeFields';
+import { ChoiceChip, DateField, FieldTextInput, TimeField } from './DateTimeFields';
 
 export interface ScheduleFormModalProps {
   visible: boolean;
@@ -72,8 +62,6 @@ export const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
   onSaved,
 }) => {
   const router = useRouter();
-  // Modals are drawn edge-to-edge too: keep the sheet's last row above the navigation bar.
-  const insets = useSafeAreaInsets();
   const isEditing = Boolean(schedule);
   const phoneTimezone = deviceTimezone();
 
@@ -180,309 +168,260 @@ export const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
 
   const deliveryOption = DELIVERY_OPTIONS.find((option) => option.value === values.delivery);
   const runsPerDay = Math.ceil(24 / Math.max(values.intervalHours, 1));
+  const isInterval = values.frequency === 'interval';
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.overlay}>
-          <TouchableWithoutFeedback onPress={handleClose}>
-            <View style={styles.backdrop} />
-          </TouchableWithoutFeedback>
+    // The sheet itself always closes when dragged or tapped outside: a save in flight
+    // still finishes and reports through the toast.
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      dismissible={!isSaving}
+      title={isEditing ? 'Edit schedule' : 'New schedule'}
+      leftAction={{ label: 'Cancel', onPress: handleClose, disabled: isSaving }}
+      rightAction={{
+        label: isEditing ? 'Save' : 'Create',
+        onPress: handleSave,
+        loading: isSaving,
+      }}
+      detent="large"
+      scrollable
+      contentStyle={styles.content}>
+      {submitError ? (
+        <AppText variant="footnote" color="destructive" style={styles.submitError}>
+          {submitError}
+        </AppText>
+      ) : null}
 
-          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-            <View style={styles.header}>
-              <Text style={styles.title}>{isEditing ? 'Edit schedule' : 'New schedule'}</Text>
-              <TouchableOpacity
-                style={styles.closeBtn}
-                onPress={handleClose}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="Close">
-                <HugeiconsIcon icon={Cancel01Icon} size={18} color={Colors.iconMuted} />
-              </TouchableOpacity>
-            </View>
+      <ListSection header="Title" footer={errorFooter(errors.title)}>
+        <FieldTextInput
+          value={values.title}
+          onChangeText={(title) => update({ title }, 'title')}
+          placeholder="Morning inbox summary"
+          maxLength={SCHEDULE_TITLE_MAX_LENGTH}
+          returnKeyType="next"
+          accessibilityLabel="Title"
+        />
+      </ListSection>
 
-            <ScrollView
-              style={styles.form}
-              contentContainerStyle={styles.formContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}>
-              {/* Title */}
-              <Text style={styles.label}>Title</Text>
-              <TextInput
-                style={[styles.input, errors.title && styles.inputError]}
-                value={values.title}
-                onChangeText={(title) => update({ title }, 'title')}
-                placeholder="Morning inbox summary"
-                placeholderTextColor={Colors.iconMuted}
-                maxLength={SCHEDULE_TITLE_MAX_LENGTH}
-                returnKeyType="next"
+      <ListSection header="Task" footer={errorFooter(errors.task)}>
+        <FieldTextInput
+          value={values.task}
+          onChangeText={(task) => update({ task }, 'task')}
+          placeholder="Summarize my unread emails and list anything that needs a reply."
+          maxLength={SCHEDULE_TASK_MAX_LENGTH}
+          multiline
+          accessibilityLabel="Task"
+        />
+      </ListSection>
+
+      <ListSection header="Repeats">
+        {FREQUENCY_OPTIONS.map((option) => {
+          const selected = values.frequency === option.value;
+          return (
+            <ListRow
+              key={option.value}
+              title={option.label}
+              accessory={selected ? 'check' : 'none'}
+              accessibilityLabel={selected ? `${option.label}, selected` : option.label}
+              onPress={() =>
+                update(
+                  { frequency: option.value },
+                  'date',
+                  'weekdays',
+                  'dayOfMonth',
+                  'intervalHours'
+                )
+              }
+            />
+          );
+        })}
+      </ListSection>
+
+      {values.frequency === 'weekly' ? (
+        <ListSection header="Days" footer={errorFooter(errors.weekdays)}>
+          <View style={[styles.cell, styles.chips]}>
+            {WEEKDAY_PRESETS.map((preset) => (
+              <ChoiceChip
+                key={preset.label}
+                label={preset.label}
+                selected={
+                  preset.days.length === values.weekdays.length &&
+                  preset.days.every((day) => values.weekdays.includes(day))
+                }
+                onPress={() => update({ weekdays: [...preset.days] }, 'weekdays')}
               />
-              <FieldError message={errors.title} />
-
-              {/* Task */}
-              <Text style={styles.label}>Task</Text>
-              <TextInput
-                style={[styles.input, styles.multilineInput, errors.task && styles.inputError]}
-                value={values.task}
-                onChangeText={(task) => update({ task }, 'task')}
-                placeholder="Summarize my unread emails and list anything that needs a reply."
-                placeholderTextColor={Colors.iconMuted}
-                maxLength={SCHEDULE_TASK_MAX_LENGTH}
-                multiline
-                textAlignVertical="top"
-              />
-              <FieldError message={errors.task} />
-
-              {/* How often */}
-              <Text style={styles.label}>Repeats</Text>
-              <View style={styles.chipRow}>
-                {FREQUENCY_OPTIONS.map((option) => (
-                  <Chip
-                    key={option.value}
-                    label={option.label}
-                    selected={values.frequency === option.value}
-                    onPress={() =>
-                      update(
-                        { frequency: option.value },
-                        'date',
-                        'weekdays',
-                        'dayOfMonth',
-                        'intervalHours'
-                      )
-                    }
-                  />
-                ))}
-              </View>
-
-              {values.frequency === 'once' ? (
-                <>
-                  <Text style={styles.label}>Date</Text>
-                  <DateField
-                    value={values.date}
-                    onChange={(date) => update({ date }, 'date')}
-                    hasError={Boolean(errors.date)}
-                    accessibilityLabel="Date"
-                  />
-                  <FieldError message={errors.date} />
-                </>
-              ) : null}
-
-              {values.frequency === 'weekly' ? (
-                <>
-                  <Text style={styles.label}>Days</Text>
-                  <View style={styles.chipRow}>
-                    {WEEKDAY_PRESETS.map((preset) => (
-                      <Chip
-                        key={preset.label}
-                        label={preset.label}
-                        selected={
-                          preset.days.length === values.weekdays.length &&
-                          preset.days.every((day) => values.weekdays.includes(day))
-                        }
-                        onPress={() => update({ weekdays: [...preset.days] }, 'weekdays')}
-                      />
-                    ))}
-                  </View>
-                  <View style={[styles.chipRow, styles.chipRowSpaced]}>
-                    {WEEKDAYS.map((day) => (
-                      <Chip
-                        key={day.value}
-                        label={day.label}
-                        selected={values.weekdays.includes(day.value)}
-                        onPress={() => toggleWeekday(day.value)}
-                      />
-                    ))}
-                  </View>
-                  <FieldError message={errors.weekdays} />
-                </>
-              ) : null}
-
-              {values.frequency === 'monthly' ? (
-                <>
-                  <Text style={styles.label}>Day of the month</Text>
-                  <Stepper
-                    value={values.dayOfMonth}
-                    min={1}
-                    max={31}
-                    format={(day) => String(day)}
-                    onChange={(dayOfMonth) => update({ dayOfMonth }, 'dayOfMonth')}
-                    accessibilityLabel="Day of the month"
-                  />
-                  {values.dayOfMonth >= 29 ? (
-                    <Text style={styles.hintText}>
-                      Months without a {ordinal(values.dayOfMonth)} run on their last day.
-                    </Text>
-                  ) : null}
-                  <FieldError message={errors.dayOfMonth} />
-                </>
-              ) : null}
-
-              {values.frequency === 'interval' ? (
-                <>
-                  <Text style={styles.label}>Every</Text>
-                  <Stepper
-                    value={values.intervalHours}
-                    min={MIN_INTERVAL_HOURS}
-                    max={MAX_INTERVAL_HOURS}
-                    format={(hours) => (hours === 1 ? '1 hour' : `${hours} hours`)}
-                    onChange={(intervalHours) => update({ intervalHours }, 'intervalHours')}
-                    accessibilityLabel="Hours between runs"
-                  />
-                  <Text style={styles.hintText}>
-                    About {runsPerDay} {runsPerDay === 1 ? 'run' : 'runs'} a day; each uses one of
-                    your daily prompts.
-                  </Text>
-                  <FieldError message={errors.intervalHours} />
-                </>
-              ) : null}
-
-              {/* Time */}
-              <Text style={styles.label}>
-                {values.frequency === 'interval' ? 'Starting at' : 'At'}
-              </Text>
-              <TimeField
-                value={values.time}
-                onChange={(time) => update({ time }, 'time', 'date')}
-                hasError={Boolean(errors.time)}
-                accessibilityLabel="Time"
-              />
-              <FieldError message={errors.time} />
-              <Text style={styles.hintText}>
-                Times are in {formatTimezone(timezone)} ({timezone}).
-              </Text>
-              {timezone !== phoneTimezone ? (
-                <TouchableOpacity
-                  onPress={() => setTimezone(phoneTimezone)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button">
-                  <Text style={styles.linkText}>
-                    Use this phone&apos;s timezone ({formatTimezone(phoneTimezone)})
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-
-              {/* Delivery */}
-              <Text style={styles.label}>Send results to</Text>
-              <View style={styles.chipRow}>
-                {DELIVERY_OPTIONS.map((option) => {
-                  const isAvailable =
-                    deliveries === null ? option.value === 'chat' : deliveries.has(option.value);
-                  return (
-                    <Chip
-                      key={option.value}
-                      label={option.label}
-                      selected={values.delivery === option.value}
-                      disabled={!isAvailable && values.delivery !== option.value}
-                      onPress={() =>
-                        update({ delivery: option.value }, 'delivery', 'deliveryTarget')
-                      }
-                    />
-                  );
-                })}
-                {deliveries === null ? (
-                  <ActivityIndicator size="small" color={Colors.iconMuted} />
-                ) : null}
-              </View>
-              <FieldError message={errors.delivery} />
-              <TouchableOpacity
-                onPress={openConnections}
-                activeOpacity={0.7}
-                accessibilityRole="link">
-                <Text style={styles.hintText}>
-                  Only connected apps can receive results.{' '}
-                  <Text style={styles.linkText}>Manage connections</Text>
-                </Text>
-              </TouchableOpacity>
-
-              {values.delivery !== 'chat' ? (
-                <>
-                  <Text style={styles.label}>Where in {deliveryOption?.label} (optional)</Text>
-                  <TextInput
-                    style={[styles.input, errors.deliveryTarget && styles.inputError]}
-                    value={values.deliveryTarget}
-                    onChangeText={(deliveryTarget) => update({ deliveryTarget }, 'deliveryTarget')}
-                    placeholder={deliveryOption?.targetHint}
-                    placeholderTextColor={Colors.iconMuted}
-                    maxLength={DELIVERY_TARGET_MAX_LENGTH}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  <FieldError message={errors.deliveryTarget} />
-                </>
-              ) : (
-                <Text style={styles.hintText}>
-                  {isEditing && schedule?.source_thread_id
-                    ? 'Results are posted to the chat this schedule came from.'
-                    : 'Results are posted to your main chat.'}
-                </Text>
-              )}
-
-              {submitError ? (
-                <View style={styles.submitErrorBox}>
-                  <Text style={styles.submitErrorText}>{submitError}</Text>
-                </View>
-              ) : null}
-            </ScrollView>
-
-            <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={handleClose}
-                disabled={isSaving}
-                activeOpacity={0.7}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveBtn, isSaving && styles.saveBtnBusy]}
-                onPress={handleSave}
-                disabled={isSaving}
-                activeOpacity={0.8}>
-                {isSaving ? (
-                  <ActivityIndicator size="small" color={Colors.white} />
-                ) : (
-                  <Text style={styles.saveText}>{isEditing ? 'Save' : 'Create'}</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            ))}
           </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+          <View style={[styles.cell, styles.days]}>
+            {WEEKDAYS.map((day) => (
+              <ChoiceChip
+                key={day.value}
+                label={day.label}
+                selected={values.weekdays.includes(day.value)}
+                multiSelect
+                onPress={() => toggleWeekday(day.value)}
+                containerStyle={styles.dayChipContainer}
+                style={styles.dayChip}
+              />
+            ))}
+          </View>
+        </ListSection>
+      ) : null}
+
+      <ListSection
+        header="When"
+        footer={
+          <View style={styles.footerLines}>
+            <FieldError message={errors.date} />
+            <FieldError message={errors.dayOfMonth} />
+            <FieldError message={errors.intervalHours} />
+            <FieldError message={errors.time} />
+            {values.frequency === 'monthly' && values.dayOfMonth >= 29 ? (
+              <AppText variant="footnote" color="secondary">
+                Months without a {ordinal(values.dayOfMonth)} run on their last day.
+              </AppText>
+            ) : null}
+            {isInterval ? (
+              <AppText variant="footnote" color="secondary">
+                About {runsPerDay} {runsPerDay === 1 ? 'run' : 'runs'} a day; each uses one of
+                your daily prompts.
+              </AppText>
+            ) : null}
+            <AppText variant="footnote" color="secondary">
+              Times are in {formatTimezone(timezone)} ({timezone}).
+            </AppText>
+          </View>
+        }>
+        {values.frequency === 'once' ? (
+          <DateField
+            label="Date"
+            value={values.date}
+            onChange={(date) => update({ date }, 'date')}
+            hasError={Boolean(errors.date)}
+            accessibilityLabel="Date"
+          />
+        ) : null}
+        {values.frequency === 'monthly' ? (
+          <StepperRow
+            label="Day of the month"
+            value={values.dayOfMonth}
+            min={1}
+            max={31}
+            format={(day) => String(day)}
+            onChange={(dayOfMonth) => update({ dayOfMonth }, 'dayOfMonth')}
+            accessibilityLabel="Day of the month"
+          />
+        ) : null}
+        {isInterval ? (
+          <StepperRow
+            label="Every"
+            value={values.intervalHours}
+            min={MIN_INTERVAL_HOURS}
+            max={MAX_INTERVAL_HOURS}
+            format={(hours) => (hours === 1 ? '1 hour' : `${hours} hours`)}
+            onChange={(intervalHours) => update({ intervalHours }, 'intervalHours')}
+            accessibilityLabel="Hours between runs"
+          />
+        ) : null}
+        <TimeField
+          label={isInterval ? 'Starting at' : 'Time'}
+          value={values.time}
+          onChange={(time) => update({ time }, 'time', 'date')}
+          hasError={Boolean(errors.time)}
+          accessibilityLabel="Time"
+        />
+        {timezone !== phoneTimezone ? (
+          <ListRow
+            title={`Use this phone's timezone (${formatTimezone(phoneTimezone)})`}
+            action
+            numberOfLines={2}
+            onPress={() => setTimezone(phoneTimezone)}
+          />
+        ) : null}
+      </ListSection>
+
+      <ListSection
+        header="Send results to"
+        headerAction={
+          deliveries === null ? <ActivityIndicator size="small" color={Colors.secondaryLabel} /> : null
+        }
+        footer={
+          <View style={styles.footerLines}>
+            <FieldError message={errors.delivery} />
+            <Pressable
+              onPress={openConnections}
+              accessibilityRole="link"
+              hitSlop={8}
+              style={({ pressed }) => pressed && styles.linkPressed}>
+              <AppText variant="footnote" color="secondary">
+                Only connected apps can receive results.{' '}
+                <AppText variant="footnote" color="tint">
+                  Manage connections
+                </AppText>
+              </AppText>
+            </Pressable>
+            {values.delivery === 'chat' ? (
+              <AppText variant="footnote" color="secondary">
+                {isEditing && schedule?.source_thread_id
+                  ? 'Results are posted to the chat this schedule came from.'
+                  : 'Results are posted to your main chat.'}
+              </AppText>
+            ) : null}
+          </View>
+        }>
+        {DELIVERY_OPTIONS.map((option) => {
+          const isAvailable =
+            deliveries === null ? option.value === 'chat' : deliveries.has(option.value);
+          const selected = values.delivery === option.value;
+          return (
+            <ListRow
+              key={option.value}
+              title={option.label}
+              accessory={selected ? 'check' : 'none'}
+              disabled={!isAvailable && !selected}
+              accessibilityLabel={selected ? `${option.label}, selected` : option.label}
+              onPress={() => update({ delivery: option.value }, 'delivery', 'deliveryTarget')}
+            />
+          );
+        })}
+      </ListSection>
+
+      {values.delivery !== 'chat' ? (
+        <ListSection
+          header={`Where in ${deliveryOption?.label} (optional)`}
+          footer={errorFooter(errors.deliveryTarget)}>
+          <FieldTextInput
+            value={values.deliveryTarget}
+            onChangeText={(deliveryTarget) => update({ deliveryTarget }, 'deliveryTarget')}
+            placeholder={deliveryOption?.targetHint}
+            maxLength={DELIVERY_TARGET_MAX_LENGTH}
+            autoCapitalize="none"
+            autoCorrect={false}
+            accessibilityLabel={`Where in ${deliveryOption?.label}`}
+          />
+        </ListSection>
+      ) : null}
+    </BottomSheet>
   );
 };
 
 function FieldError({ message }: { message?: string }) {
-  return message ? <Text style={styles.errorText}>{message}</Text> : null;
+  return message ? (
+    <AppText variant="footnote" color="destructive">
+      {message}
+    </AppText>
+  ) : null;
 }
 
-function Chip({
+/** A section's footer showing a field's error, or none. */
+function errorFooter(message?: string) {
+  return message ? <FieldError message={message} /> : undefined;
+}
+
+/** A form row with a value and an iOS stepper (− | +) at the right. */
+function StepperRow({
   label,
-  selected,
-  disabled = false,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.chip, selected && styles.chipSelected, disabled && styles.chipDisabled]}
-      onPress={onPress}
-      disabled={disabled}
-      activeOpacity={0.75}
-      accessibilityRole="button"
-      accessibilityState={{ selected, disabled }}>
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function Stepper({
   value,
   min,
   max,
@@ -490,6 +429,7 @@ function Stepper({
   onChange,
   accessibilityLabel,
 }: {
+  label: string;
   value: number;
   min: number;
   max: number;
@@ -497,221 +437,122 @@ function Stepper({
   onChange: (value: number) => void;
   accessibilityLabel: string;
 }) {
+  const step = (next: number) => {
+    haptic.selection();
+    onChange(Math.min(max, Math.max(min, next)));
+  };
   return (
-    <View style={styles.stepper} accessibilityLabel={`${accessibilityLabel}: ${format(value)}`}>
-      <TouchableOpacity
-        style={[styles.stepperBtn, value <= min && styles.stepperBtnDisabled]}
-        onPress={() => onChange(Math.max(min, value - 1))}
-        disabled={value <= min}
-        accessibilityRole="button"
-        accessibilityLabel="Fewer">
-        <HugeiconsIcon icon={MinusSignIcon} size={16} color={Colors.iconDark} />
-      </TouchableOpacity>
-      <Text style={styles.stepperValue}>{format(value)}</Text>
-      <TouchableOpacity
-        style={[styles.stepperBtn, value >= max && styles.stepperBtnDisabled]}
-        onPress={() => onChange(Math.min(max, value + 1))}
-        disabled={value >= max}
-        accessibilityRole="button"
-        accessibilityLabel="More">
-        <HugeiconsIcon icon={PlusSignIcon} size={16} color={Colors.iconDark} />
-      </TouchableOpacity>
+    <View style={styles.stepperRow}>
+      <AppText variant="body" style={styles.stepperLabel} numberOfLines={1}>
+        {label}
+      </AppText>
+      <AppText variant="body" color="secondary" numberOfLines={1}>
+        {format(value)}
+      </AppText>
+      <View
+        style={[styles.stepper, continuous]}
+        accessibilityLabel={`${accessibilityLabel}: ${format(value)}`}>
+        <Pressable
+          style={({ pressed }) => [styles.stepperHalf, pressed && styles.stepperHalfPressed]}
+          onPress={() => step(value - 1)}
+          disabled={value <= min}
+          hitSlop={{ top: 6, bottom: 6, left: 4 }}
+          accessibilityRole="button"
+          accessibilityLabel="Fewer"
+          accessibilityState={{ disabled: value <= min }}>
+          <HugeiconsIcon
+            icon={MinusSignIcon}
+            size={16}
+            color={value <= min ? Colors.tertiaryLabel : Colors.label}
+            strokeWidth={2.2}
+          />
+        </Pressable>
+        <View style={styles.stepperDivider} />
+        <Pressable
+          style={({ pressed }) => [styles.stepperHalf, pressed && styles.stepperHalfPressed]}
+          onPress={() => step(value + 1)}
+          disabled={value >= max}
+          hitSlop={{ top: 6, bottom: 6, right: 4 }}
+          accessibilityRole="button"
+          accessibilityLabel="More"
+          accessibilityState={{ disabled: value >= max }}>
+          <HugeiconsIcon
+            icon={PlusSignIcon}
+            size={16}
+            color={value >= max ? Colors.tertiaryLabel : Colors.label}
+            strokeWidth={2.2}
+          />
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-  },
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: Colors.overlay,
-  },
-  sheet: {
-    maxHeight: '90%',
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 18,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    marginBottom: 6,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    letterSpacing: -0.3,
-  },
-  closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  form: {
-    flexGrow: 0,
-  },
-  formContent: {
-    paddingHorizontal: 20,
+  content: {
     paddingBottom: 12,
   },
-  label: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: Colors.iconMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: 16,
-    marginBottom: 6,
+  submitError: {
+    marginHorizontal: 32,
+    marginBottom: 14,
   },
-  input: {
-    backgroundColor: Colors.surfaceInput,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    fontWeight: '500',
-    color: Colors.iconDark,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
+  cell: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  multilineInput: {
-    minHeight: 96,
-    paddingTop: 10,
-  },
-  inputError: {
-    borderColor: Colors.error,
-  },
-  errorText: {
-    marginTop: 6,
-    fontSize: 12.5,
-    color: Colors.error,
-  },
-  hintText: {
-    marginTop: 6,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Colors.textSecondary,
-  },
-  linkText: {
-    marginTop: 6,
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  chipRow: {
+  chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'center',
     gap: 8,
   },
-  chipRowSpaced: {
-    marginTop: 8,
+  days: {
+    flexDirection: 'row',
+    gap: 6,
   },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.white,
+  dayChipContainer: {
+    flex: 1,
   },
-  chipSelected: {
-    borderColor: Colors.primaryBorder,
-    backgroundColor: Colors.primarySubtle,
+  dayChip: {
+    paddingHorizontal: 0,
   },
-  chipDisabled: {
-    opacity: 0.4,
+  footerLines: {
+    gap: 4,
   },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.textSecondary,
+  linkPressed: {
+    opacity: 0.5,
   },
-  chipTextSelected: {
-    color: Colors.primary,
+  stepperRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  stepperLabel: {
+    flex: 1,
   },
   stepper: {
+    height: 32,
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 12,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.tertiaryFill,
+    overflow: 'hidden',
   },
-  stepperBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.avatarPreviewBg,
+  stepperHalf: {
+    width: 46,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepperBtnDisabled: {
-    opacity: 0.35,
+  stepperHalfPressed: {
+    backgroundColor: Colors.fill,
   },
-  stepperValue: {
-    minWidth: 72,
-    textAlign: 'center',
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  submitErrorBox: {
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: Colors.errorLight,
-  },
-  submitErrorText: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.error,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  cancelBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  saveBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveBtnBusy: {
-    opacity: 0.75,
-  },
-  saveText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.white,
+  stepperDivider: {
+    width: Hairline,
+    height: 18,
+    backgroundColor: Colors.separator,
   },
 });
 

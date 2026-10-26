@@ -1,13 +1,15 @@
 /**
  * MemorySourceToggle Component
  *
- * In a connected app's sheet (Google Calendar for now): whether its items become memories.
- * Turning it on syncs at once, so upcoming events show up as plans in the To do list; the
- * last sync and any problem with it are shown below the switch.
+ * In a connected app's sheet (Google Calendar for now): whether its items become memories,
+ * as a switch row in its own inset-grouped section. Turning it on syncs at once, so upcoming
+ * events show up as plans in the To do list; the section's footer explains it and shows the
+ * last sync or any problem with it.
  */
 
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { AppSwitch, AppText, ListRow, ListSection } from '@/components/ui';
 import { Colors } from '@/constants/colors';
 import { showToast } from '@/context/ToastContext';
 import { getErrorMessage, isAbortError } from '@/lib/api/client';
@@ -54,68 +56,45 @@ export function MemorySourceToggle({ app }: { app: string }) {
   if (!source) return null;
 
   return (
-    <View style={styles.box}>
-      <View style={styles.row}>
-        <View style={styles.text}>
-          <Text style={styles.title}>Use for memories</Text>
-          <Text style={styles.description}>
+    <ListSection
+      header="Memories"
+      footer={
+        <View style={styles.footer}>
+          <AppText variant="footnote" color="secondary">
             Upcoming events become plans in your To do list, and Cooper knows about them.
-          </Text>
+          </AppText>
+          {source.error ? (
+            <AppText variant="footnote" color="destructive">
+              {source.error}
+            </AppText>
+          ) : source.enabled && source.last_synced_at ? (
+            <AppText variant="footnote" color="secondary">
+              Last synced {formatRelativeTime(source.last_synced_at)}
+            </AppText>
+          ) : null}
         </View>
-        {isSaving ? (
-          <ActivityIndicator color={Colors.primary} />
-        ) : (
-          <Switch
-            value={source.enabled}
-            onValueChange={toggle}
-            trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-            thumbColor={source.enabled ? Colors.primary : Colors.surfaceMuted}
-            accessibilityLabel="Use for memories"
-          />
-        )}
-      </View>
-      {source.error ? (
-        <Text style={styles.error}>{source.error}</Text>
-      ) : source.enabled && source.last_synced_at ? (
-        <Text style={styles.description}>
-          Last synced {formatRelativeTime(source.last_synced_at)}
-        </Text>
-      ) : null}
-    </View>
+      }>
+      <ListRow
+        title="Use for memories"
+        accessory={
+          isSaving ? (
+            <ActivityIndicator color={Colors.secondaryLabel} />
+          ) : (
+            <AppSwitch
+              value={source.enabled}
+              onValueChange={toggle}
+              accessibilityLabel="Use for memories"
+            />
+          )
+        }
+      />
+    </ListSection>
   );
 }
 
 const styles = StyleSheet.create({
-  box: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: Colors.surface,
-    gap: 6,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  text: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  description: {
-    marginTop: 2,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Colors.textSecondary,
-  },
-  error: {
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: Colors.error,
+  footer: {
+    gap: 4,
   },
 });
 

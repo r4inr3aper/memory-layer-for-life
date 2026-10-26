@@ -1,9 +1,13 @@
-"""Extraction contract, schema version 1.0.
+"""Extraction contract, schema version 1.1.
 
 ``ExtractionOutput`` is what an extractor returns for one processing unit. It is the
 structured-output schema sent to the model, so every field is required and field
 descriptions are written for the model. System-owned facts such as ids, timestamps, and
 character offsets are deliberately absent: they are never requested from a model.
+
+Version 1.1 adds a short ``title`` per memory, for lists, and a ``conversation_title`` for
+a conversation with the assistant (ADR-048). The model must state both, like every field;
+payloads stored under 1.0 lack them and read them as null.
 
 ``ExtractionPayload`` is the envelope persisted in ``extraction_results.payload``.
 
@@ -13,7 +17,7 @@ Model output is untrusted. Nothing here is persisted before it validates, and
 
 import uuid
 from datetime import date
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,6 +35,14 @@ class ContractModel(BaseModel):
     """Base for contract types: unknown fields are rejected."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+def _absent_as_null(data: Any, field: str) -> Any:
+    """``data`` with ``field`` set to null when it is missing. Fields added in schema 1.1
+    are required of the model, like every field, but payloads stored under 1.0 lack them."""
+    if isinstance(data, dict) and field not in data:
+        return {**data, field: None}
+    return data
 
 
 class EvidenceReference(ContractModel):
@@ -91,6 +103,15 @@ class ExtractedMemory(ContractModel):
         min_length=1,
         description="One clear, self-contained statement of the memory, grounded in the source.",
     )
+    # No length bound here: an over-long title must not void the whole extraction. The
+    # memory builder shortens it.
+    title: str | None = Field(
+        description=(
+            "A short label for lists, 2 to 8 plain words, such as 'Call Priya about rent' "
+            "or 'Idea: dynamic shopping list'. Tasks start with a verb. No quotes, no "
+            "remarks such as 'as written'."
+        ),
+    )
     state: MemoryState = Field(
         description=(
             "'done' only when the source explicitly says it happened or was completed. "
@@ -124,6 +145,12 @@ class ExtractedMemory(ContractModel):
         )
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _read_schema_1_0(cls, data: Any) -> Any:
+        """A memory stored under schema 1.0 has no title: read it as null."""
+        return _absent_as_null(data, "title")
+
 
 class ExtractedEntityMention(ContractModel):
     entity_type: EntityType
@@ -147,6 +174,19 @@ class ExtractionOutput(ContractModel):
     )
     memories: list[ExtractedMemory]
     entity_mentions: list[ExtractedEntityMention]
+    conversation_title: str | None = Field(
+        description=(
+            "Only for a conversation with the assistant: what the conversation is about, "
+            "in 2 to 6 words, like a chat title, such as 'Weekend trip to Goa'. Null for "
+            "notes and imports."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_schema_1_0(cls, data: Any) -> Any:
+        """An output stored under schema 1.0 has no conversation title: read it as null."""
+        return _absent_as_null(data, "conversation_title")
 
     @model_validator(mode="after")
     def _check_internal_consistency(self) -> Self:
@@ -173,7 +213,7 @@ class ExtractionPayload(ContractModel):
     to, so the payload stays interpretable on its own.
     """
 
-    schema_version: Literal["1.0"] = EXTRACTION_SCHEMA_VERSION
+    schema_version: Literal["1.0", "1.1"] = EXTRACTION_SCHEMA_VERSION
     normalizer_version: str
     message_ids: list[uuid.UUID] = Field(min_length=1)
     output: ExtractionOutput

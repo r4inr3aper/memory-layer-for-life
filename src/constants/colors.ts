@@ -1,92 +1,154 @@
 /**
  * Zoop - Centralized Design Tokens & Color Palette
- * Primary Color: Modern Tech Blue (#2563EB / #0066FF)
- * Clean White UI theme with rich contrast and accents.
+ *
+ * Apple's iOS system palette (light appearance): system blue as the tint, the grouped
+ * background behind inset lists, labels in four strengths, hairline separators, and the
+ * system colors for status. New UI uses the semantic tokens in the first block; the older
+ * names below them map onto the same palette so every screen shares it.
  */
 
 export const Colors = {
-  // Brand Primary (Blue)
-  primary: "#2563EB", // Main brand blue
-  primaryDark: "#1D4ED8", // Pressed/Hover state
-  primaryLight: "#3B82F6", // Lighter accent
-  primaryGradientStart: "#3B82F6",
-  primaryGradientEnd: "#1D4ED8",
-  primarySubtle: "#EFF6FF", // 50 shade for chips/backgrounds
-  primaryGlow: "rgba(37, 99, 235, 0.12)",
-  primaryBorder: "#BFDBFE", // Light blue border
+  // --- Semantic iOS tokens (use these in new UI) -------------------------------------
+  // The app's tint: links, selected states, primary buttons.
+  tint: "#007AFF",
+  tintPressed: "#0062CC",
+  // A tint wash behind tinted buttons and selected chips.
+  tintFill: "#E5F1FF",
 
-  // Neutral / Layout Colors (Clean White Theme)
+  // Backgrounds. Lists and settings sit on the grouped background, in white cells.
+  systemBackground: "#FFFFFF",
+  groupedBackground: "#F2F2F7",
+  secondaryGroupedBackground: "#FFFFFF",
+  // A cell while a finger is on it.
+  cellPressed: "#E5E5EA",
+
+  // Labels, strongest first.
+  label: "#000000",
+  secondaryLabel: "#6E6E73",
+  tertiaryLabel: "#AEAEB2",
+  quaternaryLabel: "#C7C7CC",
+  placeholder: "#AEAEB2",
+
+  // Fills for controls: segmented tracks, text fields, round buttons. Translucent, as in
+  // iOS, so a control reads the same on white and on the grouped gray.
+  fill: "rgba(120, 120, 128, 0.2)",
+  secondaryFill: "rgba(120, 120, 128, 0.16)",
+  tertiaryFill: "rgba(118, 118, 128, 0.12)",
+  quaternaryFill: "rgba(116, 116, 128, 0.08)",
+
+  // Hairlines between rows and under bars.
+  separator: "#C6C6C8",
+  separatorLight: "#E5E5EA",
+
+  // System colors.
+  systemBlue: "#007AFF",
+  systemGreen: "#34C759",
+  systemOrange: "#FF9500",
+  systemRed: "#FF3B30",
+  systemYellow: "#FFCC00",
+  systemTeal: "#30B0C7",
+  systemIndigo: "#5856D6",
+  systemPurple: "#AF52DE",
+  systemPink: "#FF2D55",
+  systemGray: "#8E8E93",
+  systemGray2: "#AEAEB2",
+  systemGray3: "#C7C7CC",
+  systemGray4: "#D1D1D6",
+  systemGray5: "#E5E5EA",
+  systemGray6: "#F2F2F7",
+
+  // Floating bars: nearly opaque white, so content scrolling under them stays legible.
+  barBackground: "rgba(255, 255, 255, 0.94)",
+  // The dimming behind sheets and menus.
+  scrim: "rgba(0, 0, 0, 0.32)",
+  // The dark capsule of toasts.
+  hud: "rgba(28, 28, 30, 0.94)",
+
+  // --- Established names, on the same palette ----------------------------------------
+  // Brand Primary
+  primary: "#007AFF",
+  primaryDark: "#0062CC",
+  primaryLight: "#409CFF",
+  primaryGradientStart: "#409CFF",
+  primaryGradientEnd: "#0062CC",
+  primarySubtle: "#E5F1FF",
+  primaryGlow: "rgba(0, 122, 255, 0.12)",
+  primaryBorder: "#B3D7FF",
+
+  // Neutral / Layout Colors
   white: "#FFFFFF",
   black: "#000000",
-  background: "#FFFFFF", // Main screen background
-  surface: "#F8FAFC", // Secondary card background (Slate 50)
-  surfaceElevated: "#FFFFFF", // Elevated cards with shadow
-  surfaceMuted: "#F1F5F9", // Slate 100
-  surfaceInput: "#F7F8FA", // Form field background
+  background: "#FFFFFF",
+  surface: "#F2F2F7",
+  surfaceElevated: "#FFFFFF",
+  surfaceMuted: "#EFEFF0",
+  surfaceInput: "#EFEFF0",
 
   // Text Colors
-  text: "#0F172A", // Primary text (Slate 900)
-  textPrimary: "#0F172A", // Slate 900
-  textSecondary: "#475569", // Slate 600
-  textMuted: "#94A3B8", // Slate 400
-  textDisabled: "#CBD5E1", // Slate 300
+  text: "#000000",
+  textPrimary: "#000000",
+  textSecondary: "#6E6E73",
+  textMuted: "#8E8E93",
+  textDisabled: "#C7C7CC",
   textWhite: "#FFFFFF",
-  textLink: "#2563EB",
+  textLink: "#007AFF",
 
   // Border & Dividers
-  border: "#E2E8F0", // Slate 200
-  borderLight: "#F1F5F9", // Slate 100
-  borderFocus: "#2563EB", // Focus state border
-  divider: "#E2E8F0",
+  border: "#E5E5EA",
+  borderLight: "#F2F2F7",
+  borderFocus: "#007AFF",
+  divider: "#E5E5EA",
 
   // Status & Feedback
-  success: "#10B981", // Emerald 500
-  successLight: "#ECFDF5",
-  warning: "#F59E0B", // Amber 500
-  warningLight: "#FFFBEB",
-  error: "#EF4444", // Red 500
-  errorLight: "#FEF2F2",
-  info: "#0EA5E9", // Sky 500
-  infoLight: "#F0F9FF",
+  success: "#34C759",
+  successLight: "#E9F8ED",
+  warning: "#FF9500",
+  warningLight: "#FFF4E5",
+  error: "#FF3B30",
+  errorLight: "#FFECEB",
+  info: "#32ADE6",
+  infoLight: "#EAF6FC",
 
   // Tab & Chat UI specific tokens
-  tabInactive: "#1E2022",
-  tabActive: "#1E2022",
-  tabActiveBg: "#E6E8EA",
-  chatBubbleUser: "#E8C4B4",
-  chatBubbleUserText: "#3B2318",
-  chatBubbleAi: "#EEF0F2",
+  tabInactive: "#8E8E93",
+  tabActive: "#007AFF",
+  // The oval pill behind the selected tab's icon.
+  tabActiveBg: "#E9E9EE",
+  // Messages: the user's in the tint, the assistant's in iMessage gray.
+  chatBubbleUser: "#007AFF",
+  chatBubbleUserText: "#FFFFFF",
+  chatBubbleAi: "#E9E9EB",
   chatBubbleAiBorder: "transparent",
-  dateBadgeBg: "#F3F4F6",
-  dateBadgeText: "#888888",
-  overlay: "rgba(15, 23, 42, 0.45)",
-  statusBlue: "#2563EB",
-  iconDark: "#1E2022",
-  iconMuted: "#9E9E9E",
+  dateBadgeBg: "#F2F2F7",
+  dateBadgeText: "#8E8E93",
+  overlay: "rgba(0, 0, 0, 0.32)",
+  statusBlue: "#007AFF",
+  iconDark: "#1C1C1E",
+  iconMuted: "#8E8E93",
   inputBg: "#FFFFFF",
-  inputBarBg: "#F3F4F6",
-  inputBorder: "#E5E7EB",
-  inputBarBorder: "#ECEEF0",
+  inputBarBg: "#FFFFFF",
+  inputBorder: "#D1D1D6",
+  inputBarBorder: "#E5E5EA",
   dockBg: "#FFFFFF",
-  avatarPreviewBg: "#F3F4F6",
-  avatarOptionBg: "#F8FAFC",
-  avatarOptionSelectedBg: "#EFF6FF",
-  avatarOptionSelectedBorder: "#BFDBFE",
-  avatarAccentIndigo: "#4F46E5",
-  avatarAccentEmerald: "#059669",
-  avatarAccentAmber: "#D97706",
-  avatarAccentViolet: "#7C3AED",
-  avatarAccentRose: "#E11D48",
+  avatarPreviewBg: "#F2F2F7",
+  avatarOptionBg: "#F2F2F7",
+  avatarOptionSelectedBg: "#E5F1FF",
+  avatarOptionSelectedBorder: "#007AFF",
+  avatarAccentIndigo: "#5856D6",
+  avatarAccentEmerald: "#34C759",
+  avatarAccentAmber: "#FF9500",
+  avatarAccentViolet: "#AF52DE",
+  avatarAccentRose: "#FF2D55",
 
-  // Settings cards
-  cardSurface: "#FAFAFB",
-  cardBorder: "#ECEEF0",
+  // Settings cards: white cells on the grouped background.
+  cardSurface: "#FFFFFF",
+  cardBorder: "#E5E5EA",
 
-  // Charts (bar color validated for contrast against the light card surface)
-  chartBar: "#2563EB", // Primary blue: one series, one hue
-  chartBarSelected: "#1D4ED8", // The tapped column
-  chartGrid: "#ECEEF0", // Hairline gridlines, one step off the card surface
-  chartAxisText: "#707070", // Tick labels and captions (4.5:1 on the card)
+  // Charts (one series, one hue; the axis text keeps 4.5:1 on white)
+  chartBar: "#007AFF",
+  chartBarSelected: "#0062CC",
+  chartGrid: "#E5E5EA",
+  chartAxisText: "#6E6E73",
 
   browserPreviewBg: "#ffffff",
   // Google Branding
@@ -97,26 +159,26 @@ export const Colors = {
   googleBorder: "#DADCE0",
   googleBgHover: "#F8FAFD",
 
-  // Dark Scheme Palette (for dark mode compatibility)
+  // Scheme palette (the app is light only; app.json userInterfaceStyle)
   light: {
-    text: "#0F172A",
+    text: "#000000",
     background: "#FFFFFF",
-    backgroundElement: "#F1F5F9",
-    backgroundSelected: "#EFF6FF",
-    textSecondary: "#475569",
-    tint: "#2563EB",
+    backgroundElement: "#F2F2F7",
+    backgroundSelected: "#E5F1FF",
+    textSecondary: "#6E6E73",
+    tint: "#007AFF",
     card: "#FFFFFF",
-    border: "#E2E8F0",
+    border: "#E5E5EA",
   },
   dark: {
-    text: "#F8FAFC",
-    background: "#0B0F17",
-    backgroundElement: "#1E293B",
-    backgroundSelected: "#1E3A8A",
-    textSecondary: "#94A3B8",
-    tint: "#3B82F6",
-    card: "#0F172A",
-    border: "#1E293B",
+    text: "#FFFFFF",
+    background: "#000000",
+    backgroundElement: "#1C1C1E",
+    backgroundSelected: "#0A2A4D",
+    textSecondary: "#98989F",
+    tint: "#0A84FF",
+    card: "#1C1C1E",
+    border: "#38383A",
   },
 } as const;
 

@@ -17,6 +17,8 @@ from app.domain.attachments import ATTACHMENT_TYPES
 from app.domain.enums import (
     ChatRole,
     DevicePlatform,
+    MemoryStatus,
+    MemoryType,
     ScheduleDelivery,
     ScheduleFrequency,
     ScheduleRunStatus,
@@ -233,6 +235,18 @@ class CreateThreadRequest(StrictSchema):
     title: str | None = Field(default=None, max_length=200)
 
 
+class SavedMemoryResponse(ResponseSchema):
+    """A memory a message is evidence for."""
+
+    memory_id: uuid.UUID
+    title: str
+    memory_type: MemoryType
+    status: MemoryStatus = Field(
+        description="`active` when it was accepted (by the user or on its own), `proposed` "
+        "while it waits in To review."
+    )
+
+
 class ChatMessageResponse(ResponseSchema):
     id: uuid.UUID
     thread_id: uuid.UUID
@@ -241,6 +255,11 @@ class ChatMessageResponse(ResponseSchema):
     metadata: MessageMetadata
     created_at: datetime
     updated_at: datetime
+    saved_memories: list[SavedMemoryResponse] = Field(
+        default_factory=list,
+        description="For the user's messages in a listed page: what was remembered from "
+        "them. Chats are read for memories a few minutes after they go quiet.",
+    )
 
 
 # Base64 of the largest file the API could be configured to accept, with headroom. The

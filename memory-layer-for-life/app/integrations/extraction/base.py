@@ -21,11 +21,14 @@ class ExtractionMessage:
 
     ``sent_at_local`` is the wall-clock time in the user's timezone, without tzinfo. It is
     ``None`` when the source did not record when the message was written.
+    ``assistant_before`` is, in a conversation with the assistant, the assistant message the
+    user was answering: context for reading the message, never evidence.
     """
 
     index: int
     text: str
     sent_at_local: datetime | None
+    assistant_before: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +37,16 @@ class ExtractionRequest:
 
     ``call_context`` says on whose behalf the extraction runs, for the call log. It is
     not part of what is extracted, so it does not take part in equality.
+
+    ``conversation`` marks a unit the user wrote to their assistant, rather than notes to
+    themselves or an import (ADR-048). ``already_saved`` lists what the assistant itself
+    saved during that conversation (a reminder, say), so it is not extracted twice.
     """
 
     messages: tuple[ExtractionMessage, ...]
     timezone_name: str | None = None
+    conversation: bool = False
+    already_saved: tuple[str, ...] = ()
     call_context: LlmCallContext | None = field(default=None, compare=False)
 
 

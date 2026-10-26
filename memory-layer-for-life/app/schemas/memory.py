@@ -60,6 +60,11 @@ class MemoryResponse(ResponseSchema):
     )
     closed_at: datetime | None = Field(default=None, description="When an item was closed.")
     close_reason: CloseReason | None = None
+    title: str = Field(
+        default="",
+        description="A short label for lists: the extractor's title, or the content without "
+        "evidence-style phrasing such as 'as written'.",
+    )
 
 
 class MemorySourceResponse(ResponseSchema):

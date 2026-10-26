@@ -1,14 +1,17 @@
 /**
  * SidebarDrawer Component
  *
- * Fullscreen sliding drawer interface providing session management:
- * 1. Top bar: Agent title & right arrow dismissal button
- * 2. Main Chat: Quick jump capsule back to primary conversation
- * 3. Side Chats: Filterable list of parallel conversation threads with unread indicators
- * 4. Bottom Toolbar: Settings gear shortcut, search filter input, and compose new chat button
+ * The chat list, drawn inside the tab layout's sliding drawer (opened from the header
+ * button or a swipe right on Chat; the layout also handles Android's back button), laid
+ * out like an iOS sidebar:
+ * 1. A search field and the compose button (a new side chat)
+ * 2. Main chat, then the side chats; the open one is highlighted. Touch and hold a side
+ *    chat to delete it.
+ * 3. Settings at the bottom
  */
 
 import { Colors } from '@/constants/colors';
+import { Radius, ScreenMargin, Typography, continuous } from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { getErrorMessage } from '@/lib/api/client';
 import {
@@ -19,33 +22,26 @@ import {
 } from '@/lib/api/threads';
 import type { Thread } from '@/lib/api/types';
 import { confirmAsync } from '@/lib/dialogs';
+import { haptic } from '@/lib/haptics';
 import { SideChatItem } from '@/types';
 import {
-  ArrowRight01Icon,
-  Delete02Icon,
+  Comment01Icon,
   Edit02Icon,
   Search01Icon,
-  Settings01Icon,
+  Settings02Icon,
 } from '@hugeicons/core-free-icons';
-import { HugeiconsIcon } from '@hugeicons/react-native';
+import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react-native';
 import { useGlobalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import {
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppText } from '@/components/ui/AppText';
+import { IconButton } from '@/components/ui/IconButton';
 
 const SIDE_CHAT_PAGE_LIMIT = 100;
 
 export interface SidebarDrawerProps {
-  /** Visibility state of the drawer modal */
+  /** Whether the drawer is open; the chat list reloads each time it opens */
   visible: boolean;
   /** Active chat session identifier */
   activeChatId?: string;
@@ -68,11 +64,8 @@ export interface SidebarDrawerProps {
  */
 export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   visible,
-  activeChatId,
   agentName = 'Cooper',
   onClose,
-  onSelectChat,
-  onNewChat,
   onOpenSettings,
   onClearSideChats,
 }) => {
@@ -81,9 +74,10 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   const { thread_id: openThreadId } = useGlobalSearchParams<{ thread_id?: string }>();
   const [sideChatList, setSideChatList] = useState<SideChatItem[]>([]);
   const [mainChatThread, setMainChatThread] = useState<Thread | null>(null);
+  const [loaded, setLoaded] = useState(false);
   // Filter side chat topics by active search query
   const filteredChats = sideChatList.filter((chat) =>
-    chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+    chat.title.toLowerCase().includes(searchQuery.trim().toLowerCase())
   );
 
   // Refresh every time the drawer opens: side chats get their titles from the server.
@@ -101,6 +95,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             title: thread.title,
           }))
         );
+        setLoaded(true);
       })
       .catch((error) => {
         if (!isCurrent) return;
@@ -113,20 +108,17 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     };
   }, [visible]);
 
-  const CreateNewSideChat = async () => {
-    //Create a new side chat and close the drawer
+  const openThread = (threadId: string | undefined, chatType: 'main' | 'side') => {
+    router.replace({ pathname: '/(tabs)/chat', params: { thread_id: threadId, chatType } });
+    onClose();
+  };
+
+  const createNewSideChat = async () => {
     try {
       // No title: the server names the thread from its first message.
       const sideThread = await createSideThread();
-
-      router.replace({
-        pathname: '/(tabs)/chat',
-        params: {
-          thread_id: sideThread.id,
-          chatType: 'side',
-        },
-      });
-      onClose();
+      haptic.light();
+      openThread(sideThread.id, 'side');
     } catch (error) {
       console.error('Failed to create side chat:', error);
       showToast(getErrorMessage(error, 'Could not start a new chat'));
@@ -134,11 +126,12 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   };
 
   const deleteThread = async (threadId: string, title: string) => {
+    haptic.medium();
     const confirmed = await confirmAsync({
       title: 'Delete this chat?',
       message:
         `"${title}" and all of its messages will be deleted. This can't be undone. ` +
-        'Memories Cooper saved from it are kept; manage them in Memories.',
+        `Memories ${agentName} saved from it are kept; manage them in Memories.`,
       confirmText: 'Delete',
       destructive: true,
     });
@@ -153,10 +146,7 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
       if (openThreadId === threadId) {
         router.replace({
           pathname: '/(tabs)/chat',
-          params: {
-            thread_id: mainChatThread?.id,
-            chatType: 'main',
-          },
+          params: { thread_id: mainChatThread?.id, chatType: 'main' },
         });
       }
     } catch (error) {
@@ -165,313 +155,216 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
     }
   };
 
+  const mainIsOpen = !openThreadId || openThreadId === mainChatThread?.id;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalContainer}>
-        {/* Fullscreen white sidebar with safe area */}
-        <SafeAreaView style={styles.safeContainer} edges={['top', 'bottom', 'left', 'right']}>
-          {/* Top Bar: Center Name + Right Arrow Button */}
-          <View style={styles.header}>
-            <View style={styles.headerSideSpacer} />
-
-            <Text style={styles.headerTitle}>{agentName}</Text>
-
-            <TouchableOpacity
-              style={styles.circleBtn}
-              onPress={onClose}
-              activeOpacity={0.7}
-              accessibilityLabel="Close sidebar">
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                size={22}
-                color={Colors.iconDark}
-                strokeWidth={2.2}
-              />
-            </TouchableOpacity>
-          </View>
-
-          {/* Main Chat Capsule Button */}
-          <View style={styles.mainChatWrapper}>
-            <TouchableOpacity
-              style={styles.mainChatCapsule}
-              onPress={() => {
-                router.replace({
-                  pathname: '/(tabs)/chat',
-                  params: {
-                    thread_id: mainChatThread?.id,
-                    chatType: 'main',
-                  },
-                });
-                // onSelectChat('Main chat');
-                onClose();
-              }}
-              activeOpacity={0.8}>
-              <Text style={styles.mainChatText}>Main chat</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Thin Divider Line */}
-          <View style={styles.divider} />
-
-          {/* Side Chats Section */}
-          <ScrollView
-            style={styles.scrollArea}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}>
-            {/* Section Header */}
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionHeaderText}>Side chats</Text>
-            </View>
-
-            {/* Side Chats List */}
-            {filteredChats.map((chat) => (
-              <View key={chat.id}>
-                <TouchableOpacity
-                  style={styles.chatRow}
-                  onPress={() => {
-                    router.replace({
-                      pathname: '/(tabs)/chat',
-                      params: {
-                        thread_id: chat.id,
-                        chatType: 'side',
-                      },
-                    });
-                    // onSelectChat(chat.title);
-                    onClose();
-                  }}
-                  activeOpacity={0.7}>
-                  <Text style={styles.chatRowText} numberOfLines={1}>
-                    {chat.title}
-                  </Text>
-                  <View
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}>
-                    {/* Blue Indicator Dot if unread */}
-                    {chat.hasUnreadDot && <View style={styles.blueDot} />}
-                    <TouchableOpacity
-                      style={styles.trashBtn}
-                      onPress={() => {
-                        void deleteThread(chat.id, chat.title);
-                      }}
-                      activeOpacity={0.7}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Delete ${chat.title}`}>
-                      <HugeiconsIcon
-                        icon={Delete02Icon}
-                        size={20}
-                        color={Colors.iconMuted}
-                        strokeWidth={1.8}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </ScrollView>
-
-          {/* Bottom Toolbar: Settings Gear (Left) + Search (Center) + Compose (Right) */}
-          <View style={styles.bottomToolbar}>
-            {/* Settings Gear Button */}
-            <TouchableOpacity
-              style={styles.circleBtn}
-              onPress={() => {
-                showToast('Settings');
-                onClose();
-                onOpenSettings?.();
-              }}
-              activeOpacity={0.7}
-              accessibilityLabel="Settings">
-              <HugeiconsIcon
-                icon={Settings01Icon}
-                size={22}
-                color={Colors.iconDark}
-                strokeWidth={2}
-              />
-            </TouchableOpacity>
-
-            {/* Search Capsule Input */}
-            <View style={styles.searchCapsule}>
-              <HugeiconsIcon
-                icon={Search01Icon}
-                size={18}
-                color={Colors.iconMuted}
-                strokeWidth={2}
-              />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search"
-                placeholderTextColor={Colors.iconMuted}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-            </View>
-
-            {/* New Chat Compose Button */}
-            <TouchableOpacity
-              style={styles.circleBtn}
-              onPress={() => {
-                CreateNewSideChat();
-              }}
-              activeOpacity={0.7}
-              accessibilityLabel="New chat">
-              <HugeiconsIcon icon={Edit02Icon} size={20} color={Colors.iconDark} strokeWidth={2} />
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
+    <SafeAreaView style={styles.safeContainer} edges={['top', 'bottom', 'left']}>
+      {/* Search and compose */}
+      <View style={styles.topBar}>
+        <View style={[styles.searchField, continuous]}>
+          <HugeiconsIcon icon={Search01Icon} size={17} color={Colors.secondaryLabel} strokeWidth={2} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search"
+            placeholderTextColor={Colors.placeholder}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+            accessibilityLabel="Search chats"
+          />
+        </View>
+        <IconButton
+          icon={Edit02Icon}
+          onPress={() => void createNewSideChat()}
+          accessibilityLabel="New chat"
+          variant="tinted"
+          size={38}
+          iconSize={19}
+        />
       </View>
-    </Modal>
+
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        <ChatRow
+          title="Main chat"
+          icon={Comment01Icon}
+          selected={mainIsOpen}
+          onPress={() => openThread(mainChatThread?.id, 'main')}
+        />
+
+        <AppText variant="footnote" color="secondary" weight="600" style={styles.sectionHeader}>
+          Side chats
+        </AppText>
+
+        {filteredChats.map((chat) => (
+          <ChatRow
+            key={chat.id}
+            title={chat.title}
+            selected={openThreadId === chat.id}
+            onPress={() => openThread(chat.id, 'side')}
+            onLongPress={() => void deleteThread(chat.id, chat.title)}
+            accessibilityHint="Touch and hold to delete"
+          />
+        ))}
+
+        {loaded && filteredChats.length === 0 ? (
+          <AppText variant="footnote" color="tertiary" style={styles.emptyNote}>
+            {searchQuery.trim()
+              ? 'No chats match your search.'
+              : 'No side chats yet. Start one with the compose button.'}
+          </AppText>
+        ) : null}
+        {filteredChats.length > 0 ? (
+          <AppText variant="caption1" color="tertiary" style={styles.emptyNote}>
+            Touch and hold a chat to delete it.
+          </AppText>
+        ) : null}
+      </ScrollView>
+
+      {/* Settings */}
+      <View style={styles.bottomBar}>
+        <ChatRow
+          title="Settings"
+          icon={Settings02Icon}
+          onPress={() => {
+            onClose();
+            onOpenSettings?.();
+          }}
+        />
+      </View>
+    </SafeAreaView>
   );
 };
 
+/** A row of the chat list: highlighted while open, and while a finger is on it. */
+function ChatRow({
+  title,
+  icon,
+  selected = false,
+  onPress,
+  onLongPress,
+  accessibilityHint,
+}: {
+  title: string;
+  icon?: IconSvgElement;
+  selected?: boolean;
+  onPress: () => void;
+  onLongPress?: () => void;
+  accessibilityHint?: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}
+      unstable_pressDelay={30}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={title}
+      accessibilityHint={accessibilityHint}
+      accessibilityActions={onLongPress ? [{ name: 'delete', label: 'Delete' }] : undefined}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'delete') onLongPress?.();
+      }}
+      style={({ pressed }) => [
+        styles.chatRow,
+        continuous,
+        selected ? styles.chatRowSelected : pressed ? styles.chatRowPressed : null,
+      ]}>
+      {icon ? (
+        <HugeiconsIcon
+          icon={icon}
+          size={20}
+          color={selected ? Colors.tint : Colors.label}
+          strokeWidth={selected ? 2.2 : 1.9}
+        />
+      ) : null}
+      <AppText
+        variant="body"
+        numberOfLines={1}
+        weight={selected ? '600' : '400'}
+        style={[styles.chatRowText, selected && styles.chatRowTextSelected]}>
+        {title}
+      </AppText>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  modalContainer: {
-    flex: 1,
-    backgroundColor: Colors.white,
-  },
   safeContainer: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.systemBackground,
   },
-  header: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    gap: 10,
+    paddingHorizontal: ScreenMargin,
     paddingTop: 8,
-    paddingBottom: 12,
+    paddingBottom: 10,
   },
-  headerSideSpacer: {
-    width: 48,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
-  },
-  circleBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.white,
+  searchField: {
+    flex: 1,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: Colors.tertiaryFill,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#F0F0F2',
-    ...Platform.select({
-      ios: {
-        shadowColor: Colors.black,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.06,
-        shadowRadius: 6,
-      },
-      android: {
-        elevation: 2,
-      },
-      web: {
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
-      },
-    }),
+    paddingHorizontal: 10,
+    gap: 6,
   },
-  mainChatWrapper: {
-    paddingHorizontal: 20,
-    marginTop: 8,
-    marginBottom: 16,
-  },
-  mainChatCapsule: {
-    width: '100%',
-    height: 54,
-    backgroundColor: Colors.tabActiveBg, // #E6E8EA
-    borderRadius: 27,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  mainChatText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.iconDark,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F0F0F2',
-    width: '100%',
+  searchInput: {
+    ...Typography.body,
+    flex: 1,
+    color: Colors.label,
+    paddingVertical: 0,
   },
   scrollArea: {
     flex: 1,
   },
   scrollContent: {
+    paddingHorizontal: 10,
     paddingBottom: 16,
   },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
-  },
-  sectionHeaderText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconMuted, // #8E8E93 / #9E9E9E
-  },
-  trashBtn: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
+  sectionHeader: {
+    paddingHorizontal: 12,
+    paddingTop: 22,
+    paddingBottom: 6,
   },
   chatRow: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: Radius.md,
+  },
+  chatRowSelected: {
+    backgroundColor: Colors.tintFill,
+  },
+  chatRowPressed: {
+    backgroundColor: Colors.tertiaryFill,
   },
   chatRowText: {
-    fontSize: 16,
-    fontWeight: '400',
-    color: Colors.iconDark,
     flex: 1,
-    paddingRight: 10,
+    color: Colors.label,
   },
-  blueDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#0066FF',
+  chatRowTextSelected: {
+    color: Colors.tint,
   },
-  bottomToolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 12 : 16,
-    backgroundColor: Colors.white,
+  emptyNote: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
   },
-  searchCapsule: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#F5F6F8',
-    borderWidth: 1,
-    borderColor: '#ECECEC',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    marginHorizontal: 10,
-    gap: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: Colors.iconDark,
-    paddingVertical: 0,
+  bottomBar: {
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 6,
   },
 });
 

@@ -574,3 +574,69 @@ Embeddings live in `memory_embeddings` (revision 009), one row per memory and em
 - Messages from others are evidence only, as context for what the user said.
 - Only the primary calendar, and only Google Calendar, is a source. Gmail is not: it is too high-volume and private for automatic memories.
 - Recurring events appear once per occurrence in the window. Events deleted in the calendar are not removed from memories.
+
+## ADR-048 — Conversations become memories once quiet, and the pipeline accepts what it is sure of
+
+**Date:** 2026-10-26
+
+**Decision:**
+- **Capture by conversation, not by message.** A chat is read for memories once it has been quiet for `MEMORY_CAPTURE_QUIET_SECONDS` (5 minutes): what the user wrote since the last capture becomes one unit of their evidence, in the pipeline loop (`MemoryCapture`, `chat_threads.memory_captured_through`, revision 015). Existing chats start at their latest activity, so nothing captured before is captured again.
+  - Each line carries the assistant message it answered (`assistant_before`), and the unit carries what the assistant saved itself during it (`saved_by_assistant`), both in the evidence's metadata, so a replay reads the same. Context is never evidence: quotes come from the user's lines only.
+  - Lines that cannot carry a memory on their own (fewer than three words, thanks, approvals such as "yes, send it") travel as context; a line already sent within 24 hours (a resend) is dropped; a stretch with nothing else costs no model call. The word-list rule for requests to the assistant is gone: whether "find flights to Goa for my sister's wedding" holds a memory is the extractor's call, with the reply in view.
+- **Extraction prompt 3 and contract 1.1.** Units of chat messages are marked `conversation_with_assistant`: requests, questions, greetings, and approvals are not memories, and abstaining is the normal outcome, which now ends the run as succeeded instead of held back (held-back chat runs are no longer listed in To review). Every memory gets a short `title` for lists, and a conversation gets a `conversation_title`, which names a side chat once (`ChatTitleHook`, `chat_threads.title_generated`), in the same model call. Until then a side chat is named from its first message, with links named for what they are and polite openings dropped. Both fields are required of the model; payloads stored under 1.0 read them as null.
+- **Auto-accept (rule `auto-accept/1`).** For app users, a memory that is confident (0.8 or more), not sensitive, not an abstention, and in the user's own words (a chat, a file, or a `Me:` line of an import) is saved `active`, with an `accepted` history entry by the pipeline naming the rule. Everything else stays `proposed`, so To review holds the exceptions, and the brief counts only memories proposed in the last week. `MEMORY_AUTO_ACCEPT_ENABLED` turns it off. The operator's own store keeps ADR-018: the pipeline only proposes.
+- **Write-time reconciliation.** Before a memory is inserted, the user's live, open memories of the same kind are compared with it: the same link (such as the same LinkedIn post) with text similarity of at least 0.45, or similarity of at least 0.8 without one (pg_trgm). A match gets the new evidence (supporting sources), the entity links and due date it lacked, a `mentioned_again` history entry, and acceptance if it was proposed and the new reading is one the pipeline is sure of. Money notes are never merged: two notes of "103 auto" can be two rides. Drafts of one unit are compared with each other the same way.
+- **Chat.** Starting a side chat reuses an empty one, and side chats without a message are not listed. Each message in a listed page names the memories it is evidence for (`saved_memories`), so the app shows "Remembered: …" with Undo (retract) under it.
+- **Surfaces.**
+  - `GET /me/life` lists open loops apart as `questions`, and open items of an imported chat still proposed as `triage` (keep, done, or drop); neither is a to-do or overdue.
+  - `GET /me/today` gives the Feed's cards without a model (`app.domain.today`): next actions (overdue, due or reminded today, promises to people, due this week; at most five), promises, today's and tomorrow's calendar events with what memories say about the people they name, one idea or goal to pick up again each day, and memories to confirm.
+  - Insights need evidence before they speak: a follow-through rate needs five items and at least one closed by the user; a month's money total needs five notes, and so does the month it is compared with; people count only in memories about the user and them, never in money notes, links, or working notes; imported items nobody looked at are not overdue plans.
+  - Every memory response carries `title`: the extractor's, or the content without evidence-style phrasing ("Task as written: …").
+
+**Reason:** In the live data, 280 of 285 memories were never reviewed, so review was not a gate anyone used. Requests to the assistant and resends filled the to-do list: one LinkedIn request sent four times became five differently worded tasks, which exact matching cannot catch. The Feed's first card read "You finish 0% of what you plan", from duplicates and a months-old import. Side chats were named by their raw first line. A message read alone cannot tell "yes" or "find flights" from a fact, and reading a quiet stretch at once costs fewer calls than one per message.
+
+**Consequence:**
+- Memories appear about five minutes after a chat goes quiet, not seconds after a message; the assistant's own context covers the gap.
+- Existing proposed memories stay proposed; existing duplicates stay until merged in To review.
+- Auto-accepted memories can be wrong; Undo under the message, and Wrong on the memory, retract them.
+- Similarity thresholds are defaults until measured on real data. Matching by meaning (embeddings) at write time is not used: it would need an embedding call per memory before it is saved; the review suggestions of ADR-044 still find paraphrases later.
+- Capture runs only where the pipeline loop runs (`PIPELINE_WORKER_ENABLED` and an extractor).
+
+## ADR-049 — Documents the assistant reads, kept apart from memories
+
+**Date:** 2026-10-26
+
+**Decision:**
+- Users upload PDFs, Word documents (.docx), and text or Markdown files (`POST /me/documents`, 10 MB). The text is read without a model: a PDF's text layer with pypdf, a .docx's paragraphs with the standard library (with limits against zip and XML bombs), text as UTF-8. Only the text is kept, in ordered passages of about 1,500 characters (`documents`, `document_chunks` with a generated full-text column, revision 015); the file is not stored. The same file again is the same document.
+- A PDF without a text layer (a scan) is refused with a message, unless `DOCUMENT_VISION_FALLBACK` is on: then the model reads it once, counted as one of the day's prompts.
+- A document is reference material, not memories: nothing is extracted from it. The first document that looks like a resume (by its name or its sections) becomes the user's resume; another can be marked instead; there is at most one.
+- The assistant's context lists the documents by title, the resume marked. `read_document` returns one whole (40,000 characters at most; `resume` finds the resume), and `search_documents` finds passages by words. Both are offered in chats and scheduled runs. The job-application instructions read the resume before drafting and base every claim on it (assistant prompt 1.8).
+- Deleting a document deletes its passages (foreign-key cascade), and the tools read the stored text on every call, so the assistant can read nothing of it afterwards. Documents are deleted with the user and included in the export.
+- In the app, Settings > My files lists, adds, and deletes documents and marks the resume. A PDF sent in chat from the device offers "Save to My files", since chat attachments are read for one reply only (ADR-033).
+
+**Reason:** A resume attached in chat was used for one reply and then forgotten. Turning it into memories would break it into fragments, useless for writing an application, and deleting the file would leave them behind. Reading text layers without a model is exact, free, and has no output limit.
+
+**Consequence:**
+- Passages are searched by words only; search by meaning (embeddings of passages) is not built yet.
+- Scanned PDFs need the fallback switched on. Images are not documents; "From a photo or PDF" in Memories still turns them into memories.
+- Past chat replies that quoted a deleted document stay in that chat's history until it is cleared.
+- The original file is not kept, so it cannot be attached to an email; storing files (in Supabase Storage, say) is a separate decision. Superseded by ADR-050: the file is now kept.
+
+## ADR-050 — Files and links the assistant sends for the user
+
+**Date:** 2026-10-26
+
+**Decision:**
+- Uploading a document now keeps the original file as well as its text (`document_files`, one `bytea` row per document, `documents.has_file`; revision 016). A user's kept files may take 50 MB together (`DOCUMENT_STORAGE_MAX_BYTES`); past that an upload is refused with 413 and a message saying how much is used. Documents uploaded before this kept only their text: uploading the same file again keeps it. `GET /me/documents/{id}/file` returns the file (base64) for the app to open or share.
+- Links are saved apart from documents (`saved_links`, `/me/links`): an address normalized to `https://`, a title, and a kind (resume, portfolio, LinkedIn, GitHub, website, other), guessed from the title and the site when not given. The same address twice is the same link; at most one link is the resume, and marking another makes the previous one a plain link. Nothing is fetched from a link.
+- The assistant never handles file bytes. Its context marks documents whose file is kept as *attachable* and lists every saved link with its address (assistant prompt 1.9). To attach a file, it writes `{"document": "resume"}` (or a title) where an app action takes a file. Just before the action runs, `AppAttachments` resolves each reference to the user's file, stages it with Composio for that action (`POST /api/v3.1/files/upload/request`, then a PUT of the bytes to the returned address), and passes `{name, mimetype, s3key}` in its place. This works for `run_app_tool` and for job application drafts.
+- A job application draft pins its references to document ids when it is prepared, and lists them on the card (`attachments`), so Send attaches exactly what the user reviewed. A reference that cannot be resolved (no such file, only the text kept, or the file deleted since the draft) stops the action with a message saying why: nothing is sent without the attachment the user expects. `linkedin_post_url` is optional, since an application can answer any job post.
+- The job-application instructions send the resume with every application: the file attached when it is attachable, and the resume link in the body when one is saved.
+- Links are included in the export, and the export says which documents have a kept file (the bytes are not in the JSON). Files and links are deleted with their document or with the user.
+
+**Reason:** Applying for a job means sending the resume, as a file or a link, and the assistant could do neither: only the text of an upload was kept, and nothing held a Drive link. Keeping files in Postgres needs no new service or credentials, and at a few files per user it stays small; the quota bounds it. References keep bytes out of the model's context and let the server check every file against its owner before it leaves.
+
+**Consequence:**
+- Files live in the database. Large numbers of users or larger files would move them to object storage behind the same `DocumentService` methods.
+- Attaching depends on Composio's file upload for the app action; an app action that takes no file cannot attach one, and the assistant then shares the link instead.
+- Images and other file types are still not documents.

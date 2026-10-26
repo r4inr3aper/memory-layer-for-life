@@ -1,7 +1,8 @@
 /**
  * Life Cards
  *
- * Cards under Cooper's proactive messages:
+ * Cards under Cooper's proactive messages, as iOS cards on the white chat (grouped gray,
+ * continuous corners, small capsule buttons):
  *
  * - `ReminderCard`, under a reminder the user set: Done, or snooze for an hour or until
  *   tomorrow morning.
@@ -12,9 +13,13 @@
  */
 
 import React, { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Tick02Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react-native';
+import { AppText, Button, Card } from '@/components/ui';
 import { Colors } from '@/constants/colors';
+import { Hairline } from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { getErrorMessage } from '@/lib/api/client';
 import { closeItem, scheduleItem } from '@/lib/api/life';
@@ -54,16 +59,16 @@ export function ReminderCard({ note }: { note: ReminderNote }) {
     });
 
   return (
-    <View style={styles.card}>
+    <Card style={styles.card}>
       {outcome ? (
-        <Text style={styles.outcome}>{outcome.label}</Text>
+        <OutcomeLine label={outcome.label} />
       ) : busy ? (
-        <ActivityIndicator color={Colors.primary} />
+        <ActivityIndicator color={Colors.tint} style={styles.spinner} />
       ) : (
         <View style={styles.actions}>
-          <CardButton
-            label="Done"
-            primary
+          <Button
+            title="Done"
+            size="small"
             onPress={() =>
               act(async () => {
                 await closeItem(note.memory_id, 'complete');
@@ -71,16 +76,28 @@ export function ReminderCard({ note }: { note: ReminderNote }) {
               })
             }
           />
-          <CardButton label="In 1 hour" onPress={() => snooze('In 1 hour')} />
-          <CardButton label="Tomorrow" onPress={() => snooze('Tomorrow morning')} />
+          <Button
+            title="In 1 hour"
+            variant="tinted"
+            size="small"
+            onPress={() => snooze('In 1 hour')}
+          />
+          <Button
+            title="Tomorrow"
+            variant="tinted"
+            size="small"
+            onPress={() => snooze('Tomorrow morning')}
+          />
         </View>
       )}
-      <TouchableOpacity
+      <Button
+        title="Open"
+        variant="plain"
+        size="small"
+        containerStyle={styles.link}
         onPress={() => router.push({ pathname: '/memories/[id]', params: { id: note.memory_id } })}
-        activeOpacity={0.7}>
-        <Text style={styles.link}>Open</Text>
-      </TouchableOpacity>
-    </View>
+      />
+    </Card>
   );
 }
 
@@ -98,21 +115,21 @@ export function BriefCard({ note }: { note: BriefNote }) {
   };
 
   return (
-    <View style={styles.card}>
-      {note.follow_ups.map((item) => (
-        <View key={item.memory_id} style={styles.followUp}>
-          <Text style={styles.followUpText} numberOfLines={2}>
+    <Card style={styles.card}>
+      {note.follow_ups.map((item, index) => (
+        <View key={item.memory_id} style={[styles.followUp, index > 0 && styles.followUpDivided]}>
+          <AppText variant="subheadline" weight="600" numberOfLines={2}>
             {item.content}
-          </Text>
+          </AppText>
           {outcomes[item.memory_id] ? (
-            <Text style={styles.outcome}>{outcomes[item.memory_id]}</Text>
+            <OutcomeLine label={outcomes[item.memory_id]} />
           ) : busyId === item.memory_id ? (
-            <ActivityIndicator color={Colors.primary} />
+            <ActivityIndicator color={Colors.tint} style={styles.spinner} />
           ) : (
             <View style={styles.actions}>
-              <CardButton
-                label="Done"
-                primary
+              <Button
+                title="Done"
+                size="small"
                 onPress={() =>
                   act(item.memory_id, async () => {
                     await closeItem(item.memory_id, 'complete');
@@ -120,8 +137,10 @@ export function BriefCard({ note }: { note: BriefNote }) {
                   })
                 }
               />
-              <CardButton
-                label="Not yet"
+              <Button
+                title="Not yet"
+                variant="tinted"
+                size="small"
                 onPress={() =>
                   act(item.memory_id, async () => {
                     await scheduleItem(item.memory_id, { due_on: isoDate(new Date()) });
@@ -133,42 +152,34 @@ export function BriefCard({ note }: { note: BriefNote }) {
           )}
         </View>
       ))}
-      <TouchableOpacity onPress={() => router.navigate('/(tabs)/tasks')} activeOpacity={0.7}>
-        <Text style={styles.link}>See your list</Text>
-      </TouchableOpacity>
-    </View>
+      <Button
+        title="See your list"
+        variant="plain"
+        size="small"
+        containerStyle={styles.link}
+        onPress={() => router.navigate('/(tabs)/tasks')}
+      />
+    </Card>
   );
 }
 
-function CardButton({
-  label,
-  onPress,
-  primary = false,
-}: {
-  label: string;
-  onPress: () => void;
-  primary?: boolean;
-}) {
+/** What the user chose, in place of the buttons. */
+function OutcomeLine({ label }: { label: string }) {
   return (
-    <TouchableOpacity
-      style={[styles.button, primary && styles.buttonPrimary]}
-      onPress={onPress}
-      activeOpacity={0.8}
-      accessibilityRole="button">
-      <Text style={[styles.buttonText, primary && styles.buttonTextPrimary]}>{label}</Text>
-    </TouchableOpacity>
+    <View style={styles.outcome}>
+      <HugeiconsIcon icon={Tick02Icon} size={16} color={Colors.systemGreen} strokeWidth={2.2} />
+      <AppText variant="subheadline" weight="600" color="success" style={styles.outcomeText}>
+        {label}
+      </AppText>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    marginTop: 10,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: Colors.white,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 8,
+    backgroundColor: Colors.groupedBackground,
+    padding: 14,
+    gap: 10,
   },
   actions: {
     flexDirection: 'row',
@@ -176,43 +187,30 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   followUp: {
-    gap: 6,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    gap: 8,
   },
-  followUpText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.iconDark,
+  followUpDivided: {
+    paddingTop: 10,
+    borderTopWidth: Hairline,
+    borderTopColor: Colors.separator,
   },
   outcome: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.success,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 32,
+  },
+  outcomeText: {
+    flexShrink: 1,
+  },
+  spinner: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
   },
   link: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.primary,
-  },
-  button: {
-    height: 32,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: Colors.avatarPreviewBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonPrimary: {
-    backgroundColor: Colors.primary,
-  },
-  buttonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  buttonTextPrimary: {
-    color: Colors.white,
+    alignSelf: 'flex-start',
+    // The plain button's label lines up with the card's text.
+    marginLeft: -4,
+    marginVertical: -4,
   },
 });

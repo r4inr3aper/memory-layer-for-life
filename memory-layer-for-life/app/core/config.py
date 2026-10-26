@@ -150,10 +150,25 @@ class Settings(BaseSettings):
     USAGE_CURRENCY: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
     USAGE_CURRENCY_PER_USD: Decimal = Field(default=Decimal("88"), gt=0)
 
-    # Chats become memories: each message a user sends (of at least a few words) goes
-    # through the memory pipeline in the background, owned by that user. Users can turn it
-    # off for themselves; this turns it off for everyone.
+    # Chats become memories: once a chat has been quiet for MEMORY_CAPTURE_QUIET_SECONDS,
+    # what the user said since the last capture goes through the memory pipeline as one
+    # unit, with the assistant's replies as context (ADR-048). Users can turn it off for
+    # themselves; this turns it off for everyone.
     MEMORY_CAPTURE_ENABLED: bool = True
+    MEMORY_CAPTURE_QUIET_SECONDS: float = Field(default=300.0, gt=0)
+    # Memories the pipeline is sure of (confident, not sensitive, the user's own words)
+    # are accepted without review; the rest wait in To review (ADR-048).
+    MEMORY_AUTO_ACCEPT_ENABLED: bool = True
+
+    # Documents the user uploads for the assistant to read (ADR-049). A PDF without a text
+    # layer (a scan) is read by the model only when DOCUMENT_VISION_FALLBACK is on: one
+    # model call, counted as one of the day's prompts.
+    DOCUMENT_MAX_BYTES: int = Field(default=10 * 1024 * 1024, ge=1)
+    # The original files are kept too, so the assistant can attach them (a resume to a job
+    # application, ADR-050); together a user's files may take at most this much.
+    DOCUMENT_STORAGE_MAX_BYTES: int = Field(default=50 * 1024 * 1024, ge=1)
+    DOCUMENT_MAX_TEXT_CHARS: int = Field(default=200_000, ge=1)
+    DOCUMENT_VISION_FALLBACK: bool = False
 
     # Memory retrieval. Words and names are always searched; meaning is searched with
     # embeddings from Voyage AI (Anthropic offers no embedding model) when a key is set.

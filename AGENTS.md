@@ -28,20 +28,44 @@ This is an Expo/React Native application for **Zoop** (and AI companion **Cooper
 
 ---
 
-## 🎨 Design System & Color Tokens (`src/constants/colors.ts`)
+## 🎨 Design System (iOS design language)
 
-Always reference and add color definitions in `src/constants/colors.ts`. Never hardcode ad-hoc hex values inside components.
+The app looks and feels like an Apple app: the system font in iOS text styles, inset-grouped lists on a gray background, white cards, hairline separators, system blue as the tint, continuous corners, and motion that answers the finger at once. The rules come from Emil Kowalski's design-engineering skills (`apple-design`, `animate-expo`). Light appearance only (`app.json`).
 
-| Token                   | Hex / Value | Purpose                                       |
-| ----------------------- | ----------- | --------------------------------------------- |
-| `Colors.primary`        | `#2563EB`   | Primary brand blue                            |
-| `Colors.chatBubbleUser` | `#E8C4B4`   | Warm peach terracotta user chat bubble        |
-| `Colors.chatBubbleAi`   | `#EEF0F2`   | Soft light gray agent message bubble          |
-| `Colors.tabActiveBg`    | `#E6E8EA`   | Active tab pill capsule background in dock    |
-| `Colors.iconDark`       | `#1E2022`   | Dark charcoal for icons and typography        |
-| `Colors.iconMuted`      | `#9E9E9E`   | Secondary gray for placeholder and timestamps |
-| `Colors.statusBlue`     | `#0066FF`   | Online indicator dot on header drawer button  |
-| `Colors.white`          | `#FFFFFF`   | Main background & floating capsules           |
+**Tokens.** Never hardcode a hex value in a component; add a token instead.
+
+- `src/constants/colors.ts`: use the semantic iOS tokens: `tint`, `systemBackground` (white screens such as Chat), `groupedBackground` (`#F2F2F7`, behind lists, settings, Today), `secondaryGroupedBackground` (white cells and cards), `label` / `secondaryLabel` / `tertiaryLabel`, `fill` … `quaternaryFill` (control fills), `separator`, `cellPressed`, `system*` colors (`systemRed` for destructive, `systemGreen` for success), `scrim`, `hud`. The older names (`primary`, `textSecondary`, `iconDark`, …) map onto the same palette and still work.
+- `src/constants/theme.ts`: `Typography` (iOS text styles: `largeTitle` 34, `title1` 28, `title2` 22, `title3` 20, `headline` 17 semibold, `body` 17, `callout` 16, `subheadline` 15, `footnote` 13, `caption1` 12, `caption2` 11; tracking is size-specific per platform), `Radius` (`sm` 8, `md` 12, `lg` 16 for cards, `sheet` 24, `pill`), `continuous` (spread it next to any radius for squircle corners), `Hairline`, `ScreenMargin` (16), `Motion` (curves, durations, springs), `Elevation` (`floating` for menus and toasts, `raised` for a segmented thumb).
+
+**Primitives** (`src/components/ui`, import from `@/components/ui`):
+
+| Component | Use |
+| --- | --- |
+| `AppText` | All text: `variant` (a Typography key) and `color` (`primary`, `secondary`, `tertiary`, `tint`, `destructive`, `success`, `inverse`, or a color). |
+| `PressableScale` | Every tappable surface that is not a list row: scales to 0.97 on press-in over 120 ms (a Reanimated CSS transition), dims instead with Reduce Motion. |
+| `Button` | `filled` (the one primary action), `tinted`, `gray`, `plain`, `destructive`; sizes `large` 50, `medium` 44, `small` 32 capsule; `loading`, `icon`, `block`. |
+| `IconButton` | Round glyph buttons in bars (`filled`) or inside content (`plain`, `tinted`); 44 pt touch target whatever the visual size. |
+| `ListSection` + `ListRow` | Settings-style inset-grouped lists: header (uppercase footnote), footer, rows with an `icon` tile, `subtitle`, `value`, `accessory` (`chevron`, `check`, a switch, anything), `destructive`, `action` (a centered tinted row that is a button), `subtitleColor` (a status), `selected`/`expanded` (announced to VoiceOver), `accessibilityHint`. Rows highlight while pressed; they do not scale. |
+| `Card` | A white rounded surface on the grouped background for content that is not a row; pressable cards scale to 0.98. No borders, no shadows. |
+| `SegmentedControl` | iOS segmented control with a sliding thumb and a selection haptic; optional `badge` counts. |
+| `AppSwitch` | The platform switch in iOS green, with a selection haptic. |
+| `BottomSheet` | Sheets inside a screen (editors, pickers, menus): spring in, drag the grabber or title bar to dismiss with momentum, rubber-band at the top, Cancel and Save/Done in the title bar, `scrollable` for long forms, keyboard-aware. Use it instead of a raw `Modal`. |
+| `EmptyState` | A glyph in a soft circle, a title naming what is missing, one sentence, at most one action; `compact` inside a section. |
+| `ScreenHeader`, `LargeTitle`, `useScrollY` | The navigation bar of pushed screens. With `LargeTitle` at the top of the content and `scrollY` from `useScrollY()` (on an `Animated.ScrollView`/`Animated.FlatList`), the bar's small title and hairline appear only once the large title scrolls under it. |
+
+**Haptics** (`src/lib/haptics.ts`, `haptic.selection()`, `.light()`, `.medium()`, `.success()`, `.warning()`, `.error()`): one per user action, in the same frame as the visual, never the only feedback. A selection tick when a value steps; light when something commits or snaps home; success or error when an operation the user waited on finishes. Never on scroll, tab switches, toasts, or entrance animations.
+
+**Motion rules.**
+- Tab switches, keyboard, scrolling, and toggles in lists never animate beyond the platform's own behavior.
+- Press feedback: 100–150 ms, strong ease-out (`Motion.css.easeOut`), as a CSS transition, never a worklet.
+- Only `transform` and `opacity` animate (an absolutely positioned childless element, like a segmented thumb, may animate `width`). Never animate from `scale(0)`; start at 0.95 with opacity 0.
+- Never ease-in. Entering and leaving: `Motion.easeOut`; moving across the screen: `Motion.easeInOut`; anything a finger moved: a spring with the gesture's velocity (`Motion.spring`).
+- Layout-animation builders (`FadeIn…`) live at module scope. Never put `entering` on rows of a `FlatList`.
+- Use Reanimated, never core `Animated` or `LayoutAnimation`; `.get()`/`.set()` on shared values, never during render; `scheduleOnRN`, not `runOnJS`.
+- Respect Reduce Motion (`useReducedMotion`): cross-fade instead of slide or scale.
+- Screens are pushed with the native stack's own transition (`src/app/_layout.tsx`); never rebuild a screen transition in JS.
+
+**Layout.** List-like screens use `groupedBackground` with `ListSection`s and `Card`s; the chat stays white. Screen margins are 16. Touch targets are at least 44 pt (`hitSlop` on small visuals). Copy is short and specific; destructive actions confirm through `confirmAsync`, and everything else is undoable or harmless.
 
 ---
 

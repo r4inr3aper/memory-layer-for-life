@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Final
 from zoneinfo import ZoneInfo
 
-ASSISTANT_PROMPT_VERSION: Final = "1.7"
+ASSISTANT_PROMPT_VERSION: Final = "1.9"
 DEFAULT_ASSISTANT_NAME: Final = "Cooper"
 
 
@@ -21,6 +21,7 @@ class Capabilities:
     apps: bool
     memories: bool = False
     life: bool = False
+    documents: bool = False
 
 
 _IDENTITY: Final = (
@@ -60,11 +61,34 @@ _APPS: Final = (
 )
 
 _JOB_APPLICATIONS: Final = (
-    "For job-application requests from a LinkedIn post, first read the post details with "
-    "tools (LinkedIn if connected, otherwise browser), then use search_memories for the "
-    "user's resume and relevant profile details before drafting. Once the draft is final, "
-    "create a send-review card with prepare_job_application_draft. Do not call run_app_tool "
-    "to send in that turn. The user sends from the card's Send button."
+    "For a job application, first read the job post when there is one (LinkedIn if "
+    "connected, otherwise the browser). Then read the user's resume with "
+    "read_document('resume') when they have documents, and use search_memories for other "
+    "profile details, before drafting. Base every claim about the user on what you read; "
+    "never invent experience. Send the resume with the application: attach their resume "
+    "file when the context marks it attachable, and put their resume link in the body "
+    "when they saved one. If they have neither, say so and offer to send without it. "
+    "Once the draft is final, create a send-review card with prepare_job_application_draft "
+    "and say what is attached. Do not call run_app_tool to send in that turn. The user "
+    "sends from the card's Send button."
+)
+
+_DOCUMENTS: Final = (
+    "The user's documents are files they uploaded for you to read, such as their resume; "
+    "the context lists them by title. When a request depends on one (a job application, a "
+    "cover letter, a question about their work or education, or anything they say is in a "
+    "file), read it with read_document before answering, and for a detail in a long one "
+    "use search_documents. Quote or summarize what it says; do not guess what it might "
+    "say. A document that is not listed has been deleted: do not use what you remember of "
+    "it. A document marked attachable can be sent as a file: where an app action takes a "
+    'file, give {"document": "<its title, or resume>"} instead of its contents, and the '
+    "file is attached when the action runs. Never paste a document's text as an attachment."
+)
+
+_LINKS: Final = (
+    "The user's saved links (in the context, with their addresses) are theirs to share, "
+    "such as their resume on Google Drive, a portfolio, or a profile. Put one in an email or "
+    "a message when it helps, written exactly as listed; never invent or shorten a link."
 )
 
 _MEMORIES: Final = (
@@ -118,7 +142,9 @@ def chat_instructions(capabilities: Capabilities) -> str:
         parts.append(_MEMORIES)
     if capabilities.life:
         parts.append(_LIFE)
-    parts += [_SCHEDULES, _GROUNDING]
+    if capabilities.documents:
+        parts.append(_DOCUMENTS)
+    parts += [_LINKS, _SCHEDULES, _GROUNDING]
     return "\n\n".join(parts)
 
 
@@ -164,6 +190,8 @@ def scheduled_instructions(capabilities: Capabilities) -> str:
         parts.append(_MEMORIES)
     if capabilities.life:
         parts.append(_SCHEDULED_LIFE)
+    if capabilities.documents:
+        parts.append(_DOCUMENTS)
     parts.append(_GROUNDING)
     return "\n\n".join(parts)
 
@@ -173,6 +201,18 @@ def describe_now(now: datetime, timezone_name: str) -> str:
     return f"{local:%A, %d %B %Y, %H:%M} ({timezone_name})"
 
 
+def document_label(title: str, *, is_resume: bool, attachable: bool) -> str:
+    """How the context lists a document: its title, marked when it is the resume and when
+    its file can be attached."""
+    marks = [mark for mark, on in (("resume", is_resume), ("attachable", attachable)) if on]
+    return f"{title} ({', '.join(marks)})" if marks else title
+
+
+def link_label(title: str, url: str, kind: str) -> str:
+    """How the context lists a saved link: its title, its kind, and its address."""
+    return f"{title} ({kind}): {url}"
+
+
 def chat_context(
     *,
     now: datetime,
@@ -180,7 +220,12 @@ def chat_context(
     user_name: str | None,
     connected_apps: Sequence[str],
     assistant_name: str | None = None,
+    documents: Sequence[str] = (),
+    links: Sequence[str] = (),
 ) -> str:
+    """The per-request context. ``documents`` are the titles of the user's documents, the
+    resume and the attachable ones marked; ``links`` their saved links, each with its
+    address."""
     lines = [
         f"Your name: {assistant_name or DEFAULT_ASSISTANT_NAME}.",
         f"Current time for the user: {describe_now(now, timezone_name)}.",
@@ -190,6 +235,8 @@ def chat_context(
     lines.append(
         "Connected apps: " + (", ".join(connected_apps) if connected_apps else "none") + "."
     )
+    lines.append("The user's documents: " + ("; ".join(documents) if documents else "none") + ".")
+    lines.append("The user's saved links: " + ("; ".join(links) if links else "none") + ".")
     return "\n".join(lines)
 
 

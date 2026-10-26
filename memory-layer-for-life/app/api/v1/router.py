@@ -4,12 +4,14 @@ from app.api.dependencies import require_operator
 from app.api.v1.endpoints import (
     activity,
     console,
+    documents,
     evaluations,
     feedback,
     health,
     ingestion,
     insights,
     life,
+    links,
     llm_calls,
     me,
     memories,
@@ -49,6 +51,8 @@ v1_router.include_router(people.router, prefix="/me/people", tags=["memories (ap
 v1_router.include_router(life.router, prefix="/me", tags=["life"])
 v1_router.include_router(insights.router, prefix="/me/insights", tags=["life"])
 v1_router.include_router(sources.router, prefix="/me", tags=["memory sources"])
+v1_router.include_router(documents.router, prefix="/me/documents", tags=["documents"])
+v1_router.include_router(links.router, prefix="/me/links", tags=["links"])
 v1_router.include_router(threads.router, prefix="/threads", tags=["chat"])
 v1_router.include_router(schedules.router, prefix="/schedules", tags=["schedules"])
 v1_router.include_router(tools.router, prefix="/tools", tags=["apps"])

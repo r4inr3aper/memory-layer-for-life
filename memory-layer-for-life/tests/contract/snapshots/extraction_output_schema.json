@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "schema": {
     "$defs": {
       "EntityType": {
@@ -80,6 +80,18 @@
             "description": "One clear, self-contained statement of the memory, grounded in the source.\n\n{minLength: 1}",
             "title": "Content"
           },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A short label for lists, 2 to 8 plain words, such as 'Call Priya about rent' or 'Idea: dynamic shopping list'. Tasks start with a verb. No quotes, no remarks such as 'as written'.",
+            "title": "Title"
+          },
           "state": {
             "$ref": "#/$defs/MemoryState"
           },
@@ -147,6 +159,7 @@
         "required": [
           "memory_type",
           "content",
+          "title",
           "state",
           "confidence",
           "sensitivity",
@@ -346,6 +359,18 @@
         "items": {
           "$ref": "#/$defs/ExtractedEntityMention"
         }
+      },
+      "conversation_title": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Only for a conversation with the assistant: what the conversation is about, in 2 to 6 words, like a chat title, such as 'Weekend trip to Goa'. Null for notes and imports.",
+        "title": "Conversation Title"
       }
     },
     "additionalProperties": false,
@@ -353,7 +378,8 @@
       "disposition",
       "disposition_reason",
       "memories",
-      "entity_mentions"
+      "entity_mentions",
+      "conversation_title"
     ]
   }
 }

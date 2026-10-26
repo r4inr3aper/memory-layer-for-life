@@ -6,8 +6,9 @@
  * the hand-over from the splash is seamless, and adds the name and a spinner below.
  */
 
+import { AppText } from "@/components/ui/AppText";
 import { Colors } from "@/constants/colors";
-import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, View } from "react-native";
 
 // The splash image's width in app.json (expo-splash-screen `imageWidth`).
 const SPLASH_IMAGE_SIZE = 160;
@@ -21,8 +22,8 @@ export function LaunchScreen() {
         accessibilityIgnoresInvertColors
       />
       <View style={styles.below}>
-        <Text style={styles.name}>Zoop</Text>
-        <ActivityIndicator color={Colors.primary} />
+        <AppText variant="title2">Zoop</AppText>
+        <ActivityIndicator color={Colors.systemGray} />
       </View>
     </View>
   );
@@ -31,7 +32,7 @@ export function LaunchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.systemBackground,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -46,12 +47,6 @@ const styles = StyleSheet.create({
     marginTop: SPLASH_IMAGE_SIZE / 2 + 24,
     alignItems: "center",
     gap: 16,
-  },
-  name: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: Colors.iconDark,
-    letterSpacing: -0.4,
   },
 });
 

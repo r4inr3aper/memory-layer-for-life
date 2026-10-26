@@ -30,6 +30,7 @@ from app.domain.enums import (
     SourceRole,
 )
 from app.domain.errors import RecordNotFoundError
+from app.domain.memory_policy import display_title
 from app.models.memory import Memory
 from app.models.processing_run import ProcessingRun
 from app.models.raw_message import RawMessage
@@ -122,10 +123,13 @@ class MemoryView:
     remind_at: datetime | None = None
     closed_at: datetime | None = None
     close_reason: CloseReason | None = None
+    # What a list shows (``app.domain.memory_policy.display_title``).
+    title: str = ""
 
     @classmethod
     def of(cls, memory: Memory) -> Self:
         return cls(
+            title=display_title(memory.content, memory.metadata_),
             id=memory.id,
             memory_type=MemoryType(memory.memory_type),
             content=memory.content,

@@ -20,6 +20,7 @@ from app.services.chat import ChatService
 from app.services.chat_turns import ChatTurnService
 from app.services.console_queries import ConsoleQueryService
 from app.services.diagnostics import DiagnosticsService
+from app.services.documents import DocumentService
 from app.services.evaluations import EvaluationService
 from app.services.export import ExportService
 from app.services.file_capture import FileCapture
@@ -27,6 +28,7 @@ from app.services.imports import ImportService
 from app.services.ingestion import IngestionService
 from app.services.insights import InsightService
 from app.services.life_state import LifeStateService
+from app.services.links import LinkService
 from app.services.memories import MemoryService
 from app.services.memory_review import MemoryReviewService
 from app.services.notifications import PushService
@@ -39,6 +41,7 @@ from app.services.reports import ReportService
 from app.services.retrieval.engine import RetrievalEngine
 from app.services.schedules import ScheduleService
 from app.services.source_sync import SourceSyncService
+from app.services.today import TodayService
 from app.services.tool_connections import ToolConnectionService
 from app.services.usage import UsageService
 from app.services.users import UserService
@@ -291,6 +294,23 @@ def get_insight_service(container: ContainerDep) -> InsightService:
 
 
 InsightServiceDep = Annotated[InsightService, Depends(get_insight_service)]
+
+
+def get_today_service(container: ContainerDep) -> TodayService:
+    return container.today_service
+
+
+def get_document_service(container: ContainerDep) -> DocumentService:
+    return container.document_service
+
+
+def get_link_service(container: ContainerDep) -> LinkService:
+    return container.link_service
+
+
+TodayServiceDep = Annotated[TodayService, Depends(get_today_service)]
+DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
+LinkServiceDep = Annotated[LinkService, Depends(get_link_service)]
 
 
 def get_import_service(container: ContainerDep) -> ImportService:

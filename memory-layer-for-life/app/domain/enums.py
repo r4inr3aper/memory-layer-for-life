@@ -166,6 +166,9 @@ class MemoryEventAction(StrEnum):
     REOPENED = "reopened"
     SCHEDULED = "scheduled"
     REMINDED = "reminded"
+    # The pipeline met the same memory again and gave it the new evidence instead of
+    # saving a duplicate (ADR-048).
+    MENTIONED_AGAIN = "mentioned_again"
 
 
 class SuggestionKind(StrEnum):
@@ -466,3 +469,28 @@ class UsageGranularity(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+
+
+class DocumentExtraction(StrEnum):
+    """How the text of a document the user uploaded was read (ADR-049)."""
+
+    # The PDF's own text layer, read without a model.
+    TEXT_LAYER = "text_layer"
+    # The paragraphs of a Word document.
+    DOCX = "docx"
+    # A plain-text or Markdown file, as it is.
+    PLAIN_TEXT = "plain_text"
+    # A scanned PDF read by the model, when the operator allows it.
+    VISION = "vision"
+
+
+class LinkKind(StrEnum):
+    """What a link the user saved is (ADR-050). The assistant uses the resume link in job
+    applications; at most one link is the resume."""
+
+    RESUME = "resume"
+    PORTFOLIO = "portfolio"
+    LINKEDIN = "linkedin"
+    GITHUB = "github"
+    WEBSITE = "website"
+    OTHER = "other"

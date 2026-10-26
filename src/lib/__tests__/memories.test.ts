@@ -33,6 +33,7 @@ function memory(id: string, createdAt: string): MemoryItem {
     remind_at: null,
     closed_at: null,
     close_reason: null,
+    title: `Memory ${id}`,
   };
 }
 

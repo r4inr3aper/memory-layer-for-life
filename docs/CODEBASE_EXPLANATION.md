@@ -323,17 +323,18 @@ graph TD
 
 ## 🎨 Design System & Color Tokens
 
-| Design Token            | Hex / Value | Purpose                                       |
-| ----------------------- | ----------- | --------------------------------------------- |
-| `Colors.primary`        | `#2563EB`   | Main brand blue                               |
-| `Colors.primaryDark`    | `#1D4ED8`   | Pressed / hover active state                  |
-| `Colors.chatBubbleUser` | `#E8C4B4`   | Warm peach terracotta user bubble             |
-| `Colors.chatBubbleAi`   | `#EEF0F2`   | Soft light gray agent message bubble          |
-| `Colors.tabActiveBg`    | `#E6E8EA`   | Active tab pill capsule in dock               |
-| `Colors.iconDark`       | `#1E2022`   | Dark charcoal for typography and active icons |
-| `Colors.iconMuted`      | `#9E9E9E`   | Secondary gray for subtitles & timestamps     |
-| `Colors.statusBlue`     | `#0066FF`   | Online indicator dot on header drawer button  |
-| `Colors.white`          | `#FFFFFF`   | Main background & floating capsules           |
+The app follows Apple's iOS design language. The full spec (tokens, primitives in `src/components/ui`, haptics, motion rules) is in [AGENTS.md](../AGENTS.md), section "Design System". The tokens that set the look:
+
+| Design Token                     | Value     | Purpose                                         |
+| -------------------------------- | --------- | ----------------------------------------------- |
+| `Colors.tint` (`primary`)        | `#007AFF` | iOS system blue: links, selection, primary buttons |
+| `Colors.groupedBackground`       | `#F2F2F7` | Behind inset-grouped lists, Settings, Today     |
+| `Colors.secondaryGroupedBackground` | `#FFFFFF` | Cells and cards on the grouped background |
+| `Colors.label` / `secondaryLabel` | `#000000` / `#6E6E73` | Text, strongest and secondary      |
+| `Colors.separator`               | `#C6C6C8` | Hairlines between rows and under bars           |
+| `Colors.chatBubbleUser`          | `#007AFF` | The user's messages (white text)                |
+| `Colors.chatBubbleAi`            | `#E9E9EB` | The assistant's messages                        |
+| `Colors.tabActiveBg`             | `#E9E9EE` | The oval pill behind the selected tab           |
 
 ---
 

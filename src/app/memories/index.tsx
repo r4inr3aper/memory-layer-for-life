@@ -1,47 +1,97 @@
 /**
  * Memories Screen ('/memories')
  *
- * What Cooper remembers about the user, in three tabs:
+ * What Cooper remembers about the user, in three segments:
  *
  * - All: memories that may still be true, newest first and grouped by when they were
- *   saved, with search (words, names, and meaning) and the switch for saving chats as
- *   memories.
+ *   saved, with search (words, names, and meaning; or the chats themselves) and the switch
+ *   for saving chats as memories.
  * - To review: memories waiting to be accepted, pairs that look like duplicates or
  *   conflicts, and messages Cooper held back.
  * - People: the people, places, and things the memories mention.
  *
- * "+" writes a memory by hand. Everything reloads when the screen is shown again, so
- * changes made on a memory's own screen appear here.
+ * "+" opens a pull-down menu to write a memory, read one from a file, or import a chat.
+ * Everything reloads when the screen is shown again, so changes made on a memory's own
+ * screen appear here.
+ *
+ * One list holds every segment: the large title, the segmented control, and the search
+ * field sit in its header, so typing never remounts the field and the bar's title appears
+ * once the large one scrolls under it. Rows are inset-grouped (MemoryRow's InsetCell),
+ * since a virtualized list cannot use ListSection.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
-  Modal,
+  Pressable,
   RefreshControl,
-  SectionList,
   StyleSheet,
-  Switch,
-  Text,
   TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
+  type ListRenderItemInfo,
 } from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  Keyframe,
+  ReduceMotion,
+  useReducedMotion,
+} from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { HugeiconsIcon } from '@hugeicons/react-native';
-import { PlusSignIcon, Search01Icon } from '@hugeicons/core-free-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { ScreenHeader } from '@/components/common/ScreenHeader';
+import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react-native';
+import {
+  AlertCircleIcon,
+  ArrowRight01Icon,
+  Brain01Icon,
+  CancelCircleIcon,
+  CheckmarkCircle02Icon,
+  File01Icon,
+  MessageMultiple01Icon,
+  PencilEdit02Icon,
+  PlusSignIcon,
+  Search01Icon,
+  UserGroupIcon,
+} from '@hugeicons/core-free-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  AppSwitch,
+  AppText,
+  Button,
+  Card,
+  EmptyState,
+  IconButton,
+  LargeTitle,
+  ListRow,
+  ListSection,
+  PressableScale,
+  ScreenHeader,
+  SegmentedControl,
+  useScrollY,
+} from '@/components/ui';
 import { MemoryEditorModal, type MemoryDraft } from '@/components/memories/MemoryEditorModal';
-import { MemoryRow } from '@/components/memories/MemoryRow';
+import {
+  CellPressable,
+  EntityAvatar,
+  InsetCell,
+  InsetGroupHeader,
+  LEADING_INSET,
+  MemoryRow,
+} from '@/components/memories/MemoryRow';
 import {
   HeldBackCard,
   SuggestionCard,
   type SuggestionChoice,
 } from '@/components/memories/ReviewCards';
 import { Colors } from '@/constants/colors';
+import {
+  Elevation,
+  Hairline,
+  Motion,
+  Radius,
+  ScreenMargin,
+  Typography,
+  continuous,
+} from '@/constants/theme';
 import { showToast } from '@/context/ToastContext';
 import { useRequireSession } from '@/hooks/useRequireSession';
 import { getErrorMessage, isAbortError } from '@/lib/api/client';
@@ -84,21 +134,63 @@ type Tab = 'all' | 'review' | 'people';
 
 type Editor = { kind: 'create' } | { kind: 'held'; heldBack: HeldBack };
 
-const ADD_OPTIONS = [
-  { key: 'write', label: 'Write a memory', hint: 'Something for Cooper to know.' },
-  { key: 'file', label: 'From a photo or PDF', hint: 'A receipt, a note, a document.' },
-  { key: 'import', label: 'Import a WhatsApp chat', hint: 'Bring an exported chat in.' },
+const ADD_OPTIONS: readonly {
+  key: 'write' | 'file' | 'import';
+  label: string;
+  hint: string;
+  icon: IconSvgElement;
+}[] = [
+  { key: 'write', label: 'Write a memory', hint: 'Something for Cooper to know.', icon: PencilEdit02Icon },
+  { key: 'file', label: 'From a photo or PDF', hint: 'A receipt, a note, a document.', icon: File01Icon },
+  { key: 'import', label: 'Import a WhatsApp chat', hint: 'Bring an exported chat in.', icon: MessageMultiple01Icon },
+];
+
+const SEARCH_SCOPES = [
+  { value: 'memories', label: 'Memories' },
+  { value: 'chats', label: 'Chats' },
 ] as const;
 
 const NEW_DRAFT: MemoryDraft = { content: '', memory_type: 'note', sensitive: false };
+
+// The add menu grows out of the "+" it hangs from, from 95% (never from nothing), on a
+// strong ease-out; with Reduce Motion it only fades. It leaves faster than it came.
+const MENU_IN = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.95 }] },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: Motion.easeOut },
+}).duration(Motion.duration.small);
+const MENU_FADE_IN = FadeIn.duration(Motion.duration.small).reduceMotion(ReduceMotion.Never);
+const MENU_OUT = FadeOut.duration(140).easing(Motion.easeOut).reduceMotion(ReduceMotion.Never);
+
+/** One row of the list: a group header, a row in an inset group, or a review card. */
+type Entry =
+  | { kind: 'header'; key: string; title: string; acceptAll?: boolean }
+  | { kind: 'memory'; key: string; memory: MemoryItem; first: boolean; last: boolean; review: boolean }
+  | { kind: 'hit'; key: string; hit: MessageHit; first: boolean; last: boolean }
+  | { kind: 'person'; key: string; person: Person; first: boolean; last: boolean }
+  | { kind: 'suggestion'; key: string; suggestion: MemorySuggestion; last: boolean }
+  | { kind: 'heldBack'; key: string; heldBack: HeldBack; last: boolean };
 
 function suggestionKey(suggestion: MemorySuggestion): string {
   return `${suggestion.first.id}:${suggestion.second.id}`;
 }
 
+function memoryEntries(memories: readonly MemoryItem[], review = false): Entry[] {
+  return memories.map((memory, index) => ({
+    kind: 'memory',
+    key: `m:${memory.id}`,
+    memory,
+    review,
+    first: index === 0,
+    last: index === memories.length - 1,
+  }));
+}
+
 export default function MemoriesScreen() {
   const hasSession = useRequireSession();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
+  const { scrollY, onScroll } = useScrollY();
   const params = useLocalSearchParams<{ tab?: string }>();
   const [tab, setTab] = useState<Tab>(
     params.tab === 'review' || params.tab === 'people' ? params.tab : 'all'
@@ -203,6 +295,79 @@ export default function MemoriesScreen() {
   const sections = useMemo(() => groupMemoriesByTime(memories), [memories]);
   const reviewCount =
     (inbox?.proposed_count ?? 0) + (inbox?.suggestions.length ?? 0) + (inbox?.held_back_count ?? 0);
+  const proposedCount = inbox?.proposed_count ?? proposed.length;
+
+  // What the list shows: the timeline, search results (memories or chats), or a segment.
+  const mode =
+    tab === 'all' ? (searchText ? (searchIn === 'chats' ? 'chats' : 'results') : 'timeline') : tab;
+
+  const entries = useMemo((): Entry[] => {
+    if (mode === 'timeline') {
+      return sections.flatMap((section): Entry[] => [
+        { kind: 'header', key: `h:${section.title}`, title: section.title },
+        ...memoryEntries(section.data),
+      ]);
+    }
+    if (mode === 'results') return memoryEntries(results ?? []);
+    if (mode === 'chats') {
+      const hits = chatResults ?? [];
+      return hits.map((hit, index) => ({
+        kind: 'hit',
+        key: `c:${hit.message_id}`,
+        hit,
+        first: index === 0,
+        last: index === hits.length - 1,
+      }));
+    }
+    if (mode === 'people') {
+      return people.map((person, index) => ({
+        kind: 'person',
+        key: `p:${person.id}`,
+        person,
+        first: index === 0,
+        last: index === people.length - 1,
+      }));
+    }
+    const suggestions = inbox?.suggestions ?? [];
+    const heldBack = inbox?.held_back ?? [];
+    const list: Entry[] = [];
+    if (suggestions.length) {
+      list.push({ kind: 'header', key: 'h:suggestions', title: `Look alike · ${suggestions.length}` });
+      suggestions.forEach((suggestion, index) =>
+        list.push({
+          kind: 'suggestion',
+          key: `s:${suggestionKey(suggestion)}`,
+          suggestion,
+          last: index === suggestions.length - 1,
+        })
+      );
+    }
+    if (heldBack.length) {
+      list.push({
+        kind: 'header',
+        key: 'h:held',
+        title: `Held back · ${inbox?.held_back_count ?? heldBack.length}`,
+      });
+      heldBack.forEach((item, index) =>
+        list.push({
+          kind: 'heldBack',
+          key: `b:${item.run_id}`,
+          heldBack: item,
+          last: index === heldBack.length - 1,
+        })
+      );
+    }
+    if (proposed.length) {
+      list.push({
+        kind: 'header',
+        key: 'h:proposed',
+        title: `New memories · ${proposedCount}`,
+        acceptAll: true,
+      });
+      list.push(...memoryEntries(proposed, true));
+    }
+    return list;
+  }, [mode, sections, results, chatResults, people, inbox, proposed, proposedCount]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -355,400 +520,328 @@ export default function MemoriesScreen() {
     return <View style={styles.safeArea} />;
   }
 
-  const errorBox = error ? (
-    <TouchableOpacity
-      style={styles.errorBox}
+  const spinner = <ActivityIndicator style={styles.spinner} color={Colors.systemGray} />;
+
+  const errorCard = error ? (
+    <Card
       onPress={() => {
         setError(null);
         void load();
       }}
-      activeOpacity={0.75}
-      accessibilityRole="button">
-      <Text style={styles.errorText}>{error}</Text>
-      <Text style={styles.linkText}>Try again</Text>
-    </TouchableOpacity>
+      containerStyle={styles.errorCard}
+      style={styles.errorCardBody}>
+      <HugeiconsIcon icon={AlertCircleIcon} size={22} color={Colors.systemRed} strokeWidth={2} />
+      <View style={styles.flex}>
+        <AppText variant="subheadline">{error}</AppText>
+        <AppText variant="subheadline" weight="600" color="tint">
+          Try again
+        </AppText>
+      </View>
+    </Card>
   ) : null;
 
-  const spinnerOrNothing =
-    !hasLoaded && !error ? (
-      <ActivityIndicator style={styles.spinner} color={Colors.primary} />
-    ) : undefined;
-
-  const refreshControl = (
-    <RefreshControl
-      refreshing={isRefreshing}
-      onRefresh={handleRefresh}
-      tintColor={Colors.primary}
-    />
-  );
-
-  const renderAll = () => {
-    if (searchText && searchIn === 'chats') {
-      return (
-        <FlatList
-          data={chatResults ?? []}
-          keyExtractor={(hit) => hit.message_id}
-          contentContainerStyle={styles.listContent}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.hitRow}
-              onPress={() => openChatThread(item.thread_id)}
-              activeOpacity={0.7}
-              accessibilityRole="button">
-              <Text style={styles.hitMeta}>
-                {item.role === 'user' ? 'You' : 'Cooper'} · {item.thread_title} ·{' '}
-                {formatRelativeTime(item.created_at)}
-              </Text>
-              <Text style={styles.hitText} numberOfLines={3}>
-                {snippetParts(item.snippet).map((part, index) => (
-                  <Text key={index} style={part.match ? styles.hitMatch : undefined}>
-                    {part.text}
-                  </Text>
-                ))}
-              </Text>
-            </TouchableOpacity>
-          )}
-          ItemSeparatorComponent={Separator}
-          ListEmptyComponent={
-            isSearching ? (
-              <ActivityIndicator style={styles.spinner} color={Colors.primary} />
+  const captureSection = (
+    <ListSection footer="What you tell Cooper becomes memories a moment after you send it. Only your messages are used, not Cooper's replies.">
+      <ListRow
+        title="Save chats as memories"
+        accessory={
+          captureEnabled === null ? (
+            error ? (
+              'none'
             ) : (
-              <Text style={styles.emptyText}>No chat mentions “{searchText}”.</Text>
+              <ActivityIndicator color={Colors.systemGray} />
             )
-          }
-        />
-      );
-    }
-    if (results !== null || isSearching) {
-      return (
-        <FlatList
-          data={results ?? []}
-          keyExtractor={(memory) => memory.id}
-          contentContainerStyle={styles.listContent}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({ item }) => <MemoryRow memory={item} onPress={() => openMemory(item)} />}
-          ItemSeparatorComponent={Separator}
-          ListEmptyComponent={
-            isSearching ? (
-              <ActivityIndicator style={styles.spinner} color={Colors.primary} />
-            ) : (
-              <Text style={styles.emptyText}>Nothing matches “{query.trim()}”.</Text>
-            )
-          }
-        />
-      );
-    }
-    return (
-      <SectionList
-        sections={sections}
-        keyExtractor={(memory) => memory.id}
-        contentContainerStyle={styles.listContent}
-        stickySectionHeadersEnabled={false}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <View style={styles.groupCard}>
-              <View style={styles.settingRow}>
-                <View style={styles.settingText}>
-                  <Text style={styles.settingTitle}>Save chats as memories</Text>
-                  <Text style={styles.settingDescription}>
-                    What you tell Cooper becomes memories a moment after you send it. Only your
-                    messages are used, not Cooper&apos;s replies.
-                  </Text>
-                </View>
-                {captureEnabled === null ? (
-                  error ? null : (
-                    <ActivityIndicator color={Colors.primary} />
-                  )
-                ) : (
-                  <Switch
-                    value={captureEnabled}
-                    onValueChange={handleToggleCapture}
-                    disabled={isSavingSetting}
-                    trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                    thumbColor={captureEnabled ? Colors.primary : Colors.surfaceMuted}
-                    accessibilityLabel="Save chats as memories"
-                  />
-                )}
-              </View>
-            </View>
-            {hasLoaded ? (
-              <Text style={styles.countText}>
-                {total === 1 ? '1 memory' : `${total.toLocaleString()} memories`}
-              </Text>
-            ) : null}
-            {errorBox}
-          </View>
-        }
-        renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionTitle}>{section.title}</Text>
-        )}
-        renderItem={({ item }) => <MemoryRow memory={item} onPress={() => openMemory(item)} />}
-        ItemSeparatorComponent={Separator}
-        ListEmptyComponent={
-          hasLoaded ? (
-            <Text style={styles.emptyText}>
-              Nothing yet. Tell Cooper something about yourself, like &quot;My sister Priya lives in
-              Pune&quot;, or tap + to write a memory.
-            </Text>
           ) : (
-            spinnerOrNothing
+            <AppSwitch
+              value={captureEnabled}
+              onValueChange={handleToggleCapture}
+              disabled={isSavingSetting}
+              accessibilityLabel="Save chats as memories"
+            />
           )
         }
-        ListFooterComponent={
-          isLoadingMore ? (
-            <ActivityIndicator style={styles.spinner} color={Colors.primary} />
-          ) : undefined
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.4}
-        refreshControl={refreshControl}
       />
-    );
-  };
-
-  const renderReview = () => {
-    const suggestions = inbox?.suggestions ?? [];
-    const heldBack = inbox?.held_back ?? [];
-    const proposedCount = inbox?.proposed_count ?? proposed.length;
-    const nothingToReview =
-      hasLoaded && suggestions.length === 0 && heldBack.length === 0 && proposed.length === 0;
-    return (
-      <FlatList
-        data={proposed}
-        keyExtractor={(memory) => memory.id}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            {errorBox}
-            {nothingToReview ? (
-              <Text style={styles.emptyText}>
-                Nothing to review. New memories from your chats show up here until you accept them.
-              </Text>
-            ) : null}
-            {suggestions.length ? (
-              <View>
-                <Text style={styles.sectionTitle}>Look alike · {suggestions.length}</Text>
-                {suggestions.map((suggestion) => (
-                  <SuggestionCard
-                    key={suggestionKey(suggestion)}
-                    suggestion={suggestion}
-                    busy={busy.has(suggestionKey(suggestion))}
-                    onChoose={(choice) => handleSuggestion(suggestion, choice)}
-                    onOpen={openMemory}
-                  />
-                ))}
-              </View>
-            ) : null}
-            {heldBack.length ? (
-              <View>
-                <Text style={styles.sectionTitle}>
-                  Held back · {inbox?.held_back_count ?? heldBack.length}
-                </Text>
-                {heldBack.map((item) => (
-                  <HeldBackCard
-                    key={item.run_id}
-                    heldBack={item}
-                    busy={busy.has(item.run_id)}
-                    onSave={() => setEditor({ kind: 'held', heldBack: item })}
-                    onDismiss={() => handleDismissHeldBack(item)}
-                    onOpenChat={openChatThread}
-                  />
-                ))}
-              </View>
-            ) : null}
-            {proposed.length ? (
-              <View style={styles.toReviewHeader}>
-                <Text style={[styles.sectionTitle, styles.flex]}>
-                  New memories · {proposedCount}
-                </Text>
-                <TouchableOpacity
-                  style={styles.acceptAll}
-                  onPress={handleAcceptAll}
-                  disabled={isAcceptingAll}
-                  activeOpacity={0.8}
-                  accessibilityRole="button">
-                  {isAcceptingAll ? (
-                    <ActivityIndicator size="small" color={Colors.primary} />
-                  ) : (
-                    <Text style={styles.acceptAllText}>
-                      Accept{' '}
-                      {proposed.length === proposedCount ? 'all' : `these ${proposed.length}`}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            ) : null}
-            {spinnerOrNothing}
-          </View>
-        }
-        renderItem={({ item }) => (
-          <MemoryRow
-            memory={item}
-            onPress={() => openMemory(item)}
-            onAccept={() => handleQuickStatus(item, 'accept')}
-            onRetract={() => handleQuickStatus(item, 'retract')}
-            busy={busy.has(item.id)}
-          />
-        )}
-        ItemSeparatorComponent={Separator}
-        refreshControl={refreshControl}
-      />
-    );
-  };
-
-  const renderPeople = () => (
-    <FlatList
-      data={people}
-      keyExtractor={(person) => person.id}
-      contentContainerStyle={styles.listContent}
-      ListHeaderComponent={<View style={styles.header}>{errorBox}</View>}
-      renderItem={({ item }) => (
-        <TouchableOpacity
-          style={styles.personRow}
-          onPress={() => router.push({ pathname: '/people/[id]', params: { id: item.id } })}
-          activeOpacity={0.7}
-          accessibilityRole="button">
-          <View style={styles.personAvatar}>
-            <Text style={styles.personInitial}>{item.name.charAt(0).toUpperCase()}</Text>
-          </View>
-          <View style={styles.flex}>
-            <Text style={styles.personName}>{item.name}</Text>
-            <Text style={styles.personMeta}>
-              {item.entity_type === 'person' ? 'Person' : memoryTypeLabel(item.entity_type)} ·{' '}
-              {item.memory_count === 1 ? '1 memory' : `${item.memory_count} memories`}
-              {item.last_seen_at ? ` · ${formatRelativeTime(item.last_seen_at)}` : ''}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      )}
-      ItemSeparatorComponent={Separator}
-      ListEmptyComponent={
-        hasLoaded ? (
-          <Text style={styles.emptyText}>
-            People, places, and things you mention to Cooper show up here.
-          </Text>
-        ) : (
-          spinnerOrNothing
-        )
-      }
-      refreshControl={refreshControl}
-    />
+    </ListSection>
   );
 
-  return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-      <ScreenHeader
-        title="Memories"
-        right={
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => setIsAddMenuOpen(true)}
-            disabled={isReadingFiles}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel="Add a memory">
-            {isReadingFiles ? (
-              <ActivityIndicator size="small" color={Colors.white} />
-            ) : (
-              <HugeiconsIcon icon={PlusSignIcon} size={20} color={Colors.white} />
-            )}
-          </TouchableOpacity>
-        }
+  // Stays mounted while the user types, so the field keeps its focus and keyboard.
+  const listHeader = (
+    <View>
+      <LargeTitle title="Memories" />
+      <SegmentedControl
+        segments={[
+          { value: 'all', label: 'All' },
+          { value: 'review', label: 'To review', badge: reviewCount || undefined },
+          { value: 'people', label: 'People' },
+        ]}
+        value={tab}
+        onChange={setTab}
+        style={styles.segments}
       />
-
-      <View style={styles.tabs} accessibilityRole="tablist">
-        {(
-          [
-            ['all', 'All'],
-            ['review', reviewCount ? `To review · ${reviewCount}` : 'To review'],
-            ['people', 'People'],
-          ] as const
-        ).map(([value, label]) => (
-          <TouchableOpacity
-            key={value}
-            style={[styles.tab, tab === value && styles.tabSelected]}
-            onPress={() => setTab(value)}
-            activeOpacity={0.8}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === value }}>
-            <Text style={[styles.tabText, tab === value && styles.tabTextSelected]}>{label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
       {tab === 'all' ? (
-        <View style={styles.searchBar}>
-          <HugeiconsIcon icon={Search01Icon} size={18} color={Colors.iconMuted} />
+        <View style={[styles.searchField, continuous]}>
+          <HugeiconsIcon icon={Search01Icon} size={17} color={Colors.systemGray} strokeWidth={2} />
           <TextInput
             style={styles.searchInput}
             value={query}
             onChangeText={setQuery}
             placeholder="Search memories and chats"
-            placeholderTextColor={Colors.iconMuted}
+            placeholderTextColor={Colors.placeholder}
+            selectionColor={Colors.tint}
             returnKeyType="search"
             autoCorrect={false}
             accessibilityLabel="Search your memories"
           />
           {query ? (
-            <TouchableOpacity onPress={() => setQuery('')} accessibilityRole="button">
-              <Text style={styles.linkText}>Clear</Text>
-            </TouchableOpacity>
+            <PressableScale
+              onPress={() => setQuery('')}
+              hitSlop={12}
+              pressedScale={0.9}
+              accessibilityRole="button"
+              accessibilityLabel="Clear">
+              <HugeiconsIcon icon={CancelCircleIcon} size={18} color={Colors.tertiaryLabel} strokeWidth={2} />
+            </PressableScale>
           ) : null}
         </View>
       ) : null}
-
       {tab === 'all' && searchText ? (
-        <View style={styles.searchModes}>
-          {(
-            [
-              ['memories', 'Memories'],
-              ['chats', 'Chats'],
-            ] as const
-          ).map(([value, label]) => (
-            <TouchableOpacity
-              key={value}
-              style={[styles.searchMode, searchIn === value && styles.searchModeSelected]}
-              onPress={() => setSearchIn(value)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: searchIn === value }}>
-              <Text
-                style={[
-                  styles.searchModeText,
-                  searchIn === value && styles.searchModeTextSelected,
-                ]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <SegmentedControl
+          segments={SEARCH_SCOPES}
+          value={searchIn}
+          onChange={setSearchIn}
+          style={styles.scopes}
+        />
       ) : null}
+      {errorCard}
+      {mode === 'timeline' ? captureSection : null}
+    </View>
+  );
 
-      {tab === 'all' ? renderAll() : tab === 'review' ? renderReview() : renderPeople()}
+  const listEmpty = (() => {
+    if (mode === 'results' || mode === 'chats') {
+      if (isSearching) return spinner;
+      return (
+        <EmptyState
+          icon={Search01Icon}
+          title="No results"
+          message={
+            mode === 'chats'
+              ? `No chat mentions “${searchText}”.`
+              : `Nothing matches “${searchText}”.`
+          }
+        />
+      );
+    }
+    if (!hasLoaded) return error ? undefined : spinner;
+    if (mode === 'timeline') {
+      return (
+        <EmptyState
+          icon={Brain01Icon}
+          title="No memories yet"
+          message="Tell Cooper something about yourself, like “My sister Priya lives in Pune”, or write one here."
+          actionTitle="Write a memory"
+          onAction={() => setEditor({ kind: 'create' })}
+        />
+      );
+    }
+    if (mode === 'review') {
+      return (
+        <EmptyState
+          icon={CheckmarkCircle02Icon}
+          title="Nothing to review"
+          message="New memories from your chats show up here until you accept them."
+        />
+      );
+    }
+    return (
+      <EmptyState
+        icon={UserGroupIcon}
+        title="No people yet"
+        message="People, places, and things you mention to Cooper show up here."
+      />
+    );
+  })();
 
-      <Modal
-        visible={isAddMenuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsAddMenuOpen(false)}>
-        <TouchableWithoutFeedback onPress={() => setIsAddMenuOpen(false)}>
-          <View style={styles.menuOverlay}>
-            <View style={styles.menu}>
-              {ADD_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.key}
-                  style={styles.menuItem}
-                  onPress={() => chooseAdd(option.key)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button">
-                  <Text style={styles.menuLabel}>{option.label}</Text>
-                  <Text style={styles.menuHint}>{option.hint}</Text>
-                </TouchableOpacity>
+  // The count closes the timeline, as Contacts counts its list at the bottom.
+  const listFooter =
+    mode !== 'timeline' ? undefined : isLoadingMore ? (
+      spinner
+    ) : hasLoaded && memories.length ? (
+      <AppText variant="footnote" color="secondary" align="center" style={styles.count}>
+        {total === 1 ? '1 memory' : `${total.toLocaleString()} memories`}
+      </AppText>
+    ) : undefined;
+
+  const renderEntry = ({ item }: ListRenderItemInfo<Entry>) => {
+    switch (item.kind) {
+      case 'header':
+        return (
+          <InsetGroupHeader
+            title={item.title}
+            action={
+              item.acceptAll ? (
+                <Button
+                  title={`Accept ${proposed.length === proposedCount ? 'all' : `these ${proposed.length}`}`}
+                  variant="plain"
+                  size="small"
+                  haptic="success"
+                  loading={isAcceptingAll}
+                  onPress={handleAcceptAll}
+                />
+              ) : undefined
+            }
+          />
+        );
+      case 'memory': {
+        const { memory } = item;
+        return (
+          <InsetCell first={item.first} last={item.last} inset={LEADING_INSET}>
+            {item.review ? (
+              <MemoryRow
+                memory={memory}
+                onPress={() => openMemory(memory)}
+                onAccept={() => handleQuickStatus(memory, 'accept')}
+                onRetract={() => handleQuickStatus(memory, 'retract')}
+                busy={busy.has(memory.id)}
+              />
+            ) : (
+              <MemoryRow memory={memory} onPress={() => openMemory(memory)} />
+            )}
+          </InsetCell>
+        );
+      }
+      case 'hit':
+        return (
+          <InsetCell first={item.first} last={item.last}>
+            <HitRow hit={item.hit} onPress={() => openChatThread(item.hit.thread_id)} />
+          </InsetCell>
+        );
+      case 'person': {
+        const { person } = item;
+        return (
+          <InsetCell first={item.first} last={item.last} inset={LEADING_INSET}>
+            <ListRow
+              leading={<EntityAvatar type={person.entity_type} name={person.name} />}
+              title={person.name}
+              subtitle={
+                `${person.entity_type === 'person' ? 'Person' : memoryTypeLabel(person.entity_type)} · ` +
+                `${person.memory_count === 1 ? '1 memory' : `${person.memory_count} memories`}` +
+                `${person.last_seen_at ? ` · ${formatRelativeTime(person.last_seen_at)}` : ''}`
+              }
+              onPress={() => router.push({ pathname: '/people/[id]', params: { id: person.id } })}
+            />
+          </InsetCell>
+        );
+      }
+      case 'suggestion': {
+        const key = suggestionKey(item.suggestion);
+        return (
+          <View style={[styles.cardSlot, item.last && styles.cardSlotLast]}>
+            <SuggestionCard
+              suggestion={item.suggestion}
+              busy={busy.has(key)}
+              onChoose={(choice) => handleSuggestion(item.suggestion, choice)}
+              onOpen={openMemory}
+            />
+          </View>
+        );
+      }
+      case 'heldBack':
+        return (
+          <View style={[styles.cardSlot, item.last && styles.cardSlotLast]}>
+            <HeldBackCard
+              heldBack={item.heldBack}
+              busy={busy.has(item.heldBack.run_id)}
+              onSave={() => setEditor({ kind: 'held', heldBack: item.heldBack })}
+              onDismiss={() => handleDismissHeldBack(item.heldBack)}
+              onOpenChat={openChatThread}
+            />
+          </View>
+        );
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScreenHeader
+        title="Memories"
+        scrollY={scrollY}
+        right={
+          isReadingFiles ? (
+            <View
+              style={styles.barSpinner}
+              accessible
+              accessibilityLabel="Add a memory"
+              accessibilityState={{ disabled: true, busy: true }}>
+              <ActivityIndicator size="small" color={Colors.systemGray} />
+            </View>
+          ) : (
+            <IconButton
+              icon={PlusSignIcon}
+              onPress={() => setIsAddMenuOpen((open) => !open)}
+              accessibilityLabel="Add a memory"
+            />
+          )
+        }
+      />
+
+      <View style={styles.flex}>
+        <Animated.FlatList
+          data={entries}
+          keyExtractor={(entry) => entry.key}
+          renderItem={renderEntry}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={listEmpty}
+          ListFooterComponent={listFooter}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          onEndReached={mode === 'timeline' ? handleLoadMore : undefined}
+          onEndReachedThreshold={0.4}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={Colors.systemGray}
+            />
+          }
+        />
+
+        {/* The pull-down menu of "+": it hangs from the button and a tap outside closes it. */}
+        {isAddMenuOpen ? (
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setIsAddMenuOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close the menu"
+          />
+        ) : null}
+        {isAddMenuOpen ? (
+          <Animated.View
+            entering={reducedMotion ? MENU_FADE_IN : MENU_IN}
+            exiting={MENU_OUT}
+            style={[styles.menu, continuous]}>
+            <View style={[styles.menuClip, continuous]}>
+              {ADD_OPTIONS.map((option, index) => (
+                <React.Fragment key={option.key}>
+                  {index > 0 ? <View style={styles.menuSeparator} /> : null}
+                  <CellPressable onPress={() => chooseAdd(option.key)} style={styles.menuItem}>
+                    <View style={styles.flex}>
+                      <AppText variant="body">{option.label}</AppText>
+                      <AppText variant="footnote" color="secondary">
+                        {option.hint}
+                      </AppText>
+                    </View>
+                    <HugeiconsIcon icon={option.icon} size={20} color={Colors.label} strokeWidth={1.8} />
+                  </CellPressable>
+                </React.Fragment>
               ))}
             </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+          </Animated.View>
+        ) : null}
+      </View>
 
       <MemoryEditorModal
         visible={editor !== null}
@@ -771,262 +864,131 @@ export default function MemoriesScreen() {
   );
 }
 
-function Separator() {
-  return <View style={styles.separator} />;
+/** A chat message that matches the search: who said it where and when, the words in bold. */
+function HitRow({ hit, onPress }: { hit: MessageHit; onPress: () => void }) {
+  return (
+    <CellPressable onPress={onPress} style={styles.hitRow}>
+      <View style={styles.hitTexts}>
+        <AppText variant="footnote" color="secondary" numberOfLines={1}>
+          {hit.role === 'user' ? 'You' : 'Cooper'} · {hit.thread_title} ·{' '}
+          {formatRelativeTime(hit.created_at)}
+        </AppText>
+        <AppText variant="body" numberOfLines={3}>
+          {snippetParts(hit.snippet).map((part, index) => (
+            <AppText key={index} variant="body" weight={part.match ? '600' : undefined}>
+              {part.text}
+            </AppText>
+          ))}
+        </AppText>
+      </View>
+      <HugeiconsIcon icon={ArrowRight01Icon} size={18} color={Colors.tertiaryLabel} strokeWidth={2.2} />
+    </CellPressable>
+  );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.groupedBackground,
   },
   flex: {
     flex: 1,
   },
-  addButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.primary,
+  barSpinner: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: Colors.tertiaryFill,
   },
-  tabs: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+  segments: {
+    marginHorizontal: ScreenMargin,
+    marginBottom: 12,
   },
-  tab: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    backgroundColor: Colors.surface,
-  },
-  tabSelected: {
-    backgroundColor: Colors.iconDark,
-  },
-  tabText: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  tabTextSelected: {
-    color: Colors.white,
-  },
-  menuOverlay: {
-    flex: 1,
-    backgroundColor: Colors.overlay,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-    paddingTop: 90,
-    paddingHorizontal: 16,
-  },
-  menu: {
-    width: 260,
-    borderRadius: 16,
-    backgroundColor: Colors.white,
-    paddingVertical: 6,
-  },
-  menuItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  menuLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  menuHint: {
-    marginTop: 2,
-    fontSize: 12.5,
-    color: Colors.textSecondary,
-  },
-  searchModes: {
-    flexDirection: 'row',
-    gap: 6,
-    marginHorizontal: 16,
-    marginTop: 8,
-  },
-  searchMode: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  searchModeSelected: {
-    borderColor: Colors.primaryBorder,
-    backgroundColor: Colors.primarySubtle,
-  },
-  searchModeText: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-  },
-  searchModeTextSelected: {
-    color: Colors.primary,
-  },
-  hitRow: {
-    paddingVertical: 12,
-  },
-  hitMeta: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  hitText: {
-    marginTop: 3,
-    fontSize: 14.5,
-    lineHeight: 20,
-    color: Colors.textPrimary,
-  },
-  hitMatch: {
-    fontWeight: '700',
-    color: Colors.iconDark,
-  },
-  searchBar: {
+  // The iOS search field: a gray well with a magnifier. On the grouped gray, iOS's
+  // translucent tertiary fill comes out as `fill`; the opaque `tertiaryFill` would vanish.
+  searchField: {
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 12,
-    paddingHorizontal: 12,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: Colors.surfaceInput,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
+    gap: 6,
+    marginHorizontal: ScreenMargin,
+    marginBottom: 16,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.fill,
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
-    color: Colors.iconDark,
+    height: 36,
     paddingVertical: 0,
+    fontSize: Typography.body.fontSize,
+    letterSpacing: Typography.body.letterSpacing,
+    color: Colors.label,
   },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
+  scopes: {
+    marginHorizontal: ScreenMargin,
+    marginTop: -4,
+    marginBottom: 20,
   },
-  header: {
-    paddingTop: 16,
+  errorCard: {
+    marginHorizontal: ScreenMargin,
+    marginBottom: 20,
+  },
+  errorCardBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 12,
   },
-  groupCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.inputBarBorder,
-    overflow: 'hidden',
+  cardSlot: {
+    marginHorizontal: ScreenMargin,
+    marginBottom: 12,
   },
-  settingRow: {
+  cardSlotLast: {
+    marginBottom: 28,
+  },
+  hitRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 15,
+    gap: 10,
     paddingHorizontal: 16,
-    gap: 12,
+    paddingVertical: 11,
   },
-  settingText: {
+  hitTexts: {
     flex: 1,
+    gap: 2,
   },
-  settingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.iconDark,
-    letterSpacing: -0.2,
-  },
-  settingDescription: {
-    marginTop: 3,
-    fontSize: 13,
-    lineHeight: 18,
-    color: Colors.textSecondary,
-  },
-  countText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  sectionTitle: {
-    marginTop: 14,
-    marginBottom: 6,
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  toReviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  acceptAll: {
-    marginTop: 8,
-    paddingHorizontal: 12,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.primarySubtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  acceptAllText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  separator: {
-    height: 1,
-    backgroundColor: Colors.borderLight,
-  },
-  emptyText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: Colors.textSecondary,
-    paddingVertical: 12,
+  count: {
+    marginTop: -12,
+    marginBottom: 12,
   },
   spinner: {
-    marginVertical: 16,
+    marginVertical: 24,
   },
-  errorBox: {
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: Colors.errorLight,
-    gap: 6,
+  menu: {
+    position: 'absolute',
+    top: 2,
+    right: ScreenMargin,
+    width: 264,
+    borderRadius: Radius.md + 2,
+    backgroundColor: Colors.secondaryGroupedBackground,
+    transformOrigin: 'top right',
+    ...Elevation.floating,
   },
-  errorText: {
-    fontSize: 13.5,
-    lineHeight: 19,
-    color: Colors.error,
+  menuClip: {
+    borderRadius: Radius.md + 2,
+    overflow: 'hidden',
   },
-  linkText: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  personRow: {
+  menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
   },
-  personAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.primarySubtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  personInitial: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
-  personName: {
-    fontSize: 15.5,
-    fontWeight: '600',
-    color: Colors.iconDark,
-  },
-  personMeta: {
-    marginTop: 2,
-    fontSize: 12.5,
-    color: Colors.textSecondary,
+  menuSeparator: {
+    height: Hairline,
+    backgroundColor: Colors.separator,
   },
 });

@@ -43,6 +43,17 @@ class ConnectLink(MetadataModel):
     connect_url: str
 
 
+class DraftAttachment(MetadataModel):
+    """One of the user's files attached to a draft (ADR-050). ``send_arguments`` refer to
+    it by ``document_id``; the file is staged when the user taps Send."""
+
+    document_id: uuid.UUID
+    title: str
+    file_name: str
+    media_type: str
+    size_bytes: int
+
+
 class JobApplicationDraft(MetadataModel):
     """A review card for a job application email the assistant prepared.
 
@@ -50,7 +61,8 @@ class JobApplicationDraft(MetadataModel):
     app action only after that explicit button press.
     """
 
-    linkedin_post_url: str
+    # The job post the draft answers, when there is one (a LinkedIn post, a job page).
+    linkedin_post_url: str | None = None
     recipient_email: str
     subject: str
     body: str
@@ -59,6 +71,9 @@ class JobApplicationDraft(MetadataModel):
     delivery_app: str = Field(description="The connected app that sends it, usually gmail.")
     send_tool_slug: str = Field(description="Composio tool slug used to send the email.")
     send_arguments: dict[str, object] = Field(default_factory=dict)
+    attachments: list[DraftAttachment] = Field(
+        default_factory=list, description="The user's files sent with the email."
+    )
     status: str = Field(description="pending, sending, sent, failed, or dismissed.")
     error_message: str | None = None
     sent_at: datetime | None = None

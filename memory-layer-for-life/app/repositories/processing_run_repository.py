@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import aggregate_order_by, insert
 from sqlalchemy.orm import aliased
 
 from app.db.base import new_uuid
-from app.domain.enums import PipelineStage, ProcessingStatus, RunEventType
+from app.domain.enums import MessageSource, PipelineStage, ProcessingStatus, RunEventType
 from app.models.extraction_result import ExtractionResult
 from app.models.processing_run import ProcessingRun
 from app.models.processing_run_event import ProcessingRunEvent
@@ -30,11 +30,16 @@ def _operator_runs() -> ColumnElement[bool]:
 
 
 def _held_back_by(owner_id: uuid.UUID) -> list[ColumnElement[bool]]:
-    """Runs of one owner's messages held back for review and not yet reviewed."""
+    """Runs of one owner's messages held back for review and not yet reviewed. Chat
+    messages are left out: in a conversation, nothing to remember is the usual answer,
+    not something to review (ADR-048)."""
     return [
         ProcessingRun.status == ProcessingStatus.NEEDS_REVIEW.value,
         ProcessingRun.raw_message_id.in_(
-            select(RawMessage.id).where(RawMessage.owner_id == owner_id)
+            select(RawMessage.id).where(
+                RawMessage.owner_id == owner_id,
+                RawMessage.source != MessageSource.APP_CHAT.value,
+            )
         ),
         ~exists().where(
             ProcessingRunEvent.processing_run_id == ProcessingRun.id,

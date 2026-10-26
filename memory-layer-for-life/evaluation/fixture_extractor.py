@@ -98,6 +98,7 @@ def build_expected_output(cases: list[GoldenCase], texts: RequestKey) -> Extract
             disposition=ExtractionDisposition.ABSTAIN,
             disposition_reason=first.expected.rationale,
             memories=[],
+            conversation_title=None,
             entity_mentions=[],
         )
 
@@ -127,6 +128,7 @@ def build_expected_output(cases: list[GoldenCase], texts: RequestKey) -> Extract
                 ExtractedMemory(
                     memory_type=memory_type,
                     content=expected.summary,
+                    title=None,
                     state=accepted_states(expected.status)[0],
                     confidence=0.9,
                     sensitivity=(
@@ -148,6 +150,7 @@ def build_expected_output(cases: list[GoldenCase], texts: RequestKey) -> Extract
         disposition_reason=first.expected.rationale,
         memories=memories,
         entity_mentions=mentions,
+        conversation_title=None,
     )
 
 
